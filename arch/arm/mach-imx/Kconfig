@@ -202,7 +202,7 @@ config MACH_FREESCALE_MX51_PDK
 	select MFD_MC13XXX
 
 config MACH_DOLOMANT_MX51_UTSVU
-	bool "Datamant i.MX51 UTSVU"
+	bool "Dolomant i.MX51 UTSVU"
 	select ARCH_IMX51
 	select SPI
 	select DRIVER_SPI_IMX
