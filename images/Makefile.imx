@@ -60,6 +60,16 @@ CFG_start_imx51_babbage_xload.pblx.imximg = $(board)/freescale-mx51-babbage/flas
 FILE_barebox-freescale-imx51-babbage-xload.img = start_imx51_babbage_xload.pblx.imximg
 imx-xload-$(CONFIG_MACH_FREESCALE_MX51_PDK) += barebox-freescale-imx51-babbage-xload.img
 
+pblx-$(CONFIG_MACH_DOLOMANT_MX51_UTSVU) += start_imx51_utsvu
+CFG_start_imx51_utsvu.pblx.imximg = $(board)/dolomant-mx51-utsvu/flash-header-imx51-utsvu.imxcfg
+FILE_barebox-dolomant-imx51-utsvu.img = start_imx51_utsvu.pblx.imximg
+imx-barebox-$(CONFIG_MACH_DOLOMANT_MX51_UTSVU) += barebox-dolomant-imx51-utsvu.img
+
+pblx-$(CONFIG_MACH_DOLOANT_MX51_UTSVU) += start_imx51_utsvu_xload
+CFG_start_imx51_utsvu_xload.pblx.imximg = $(board)/dolomant-mx51-utsvu/flash-header-imx51-utsvu-xload.imxcfg
+FILE_barebox-dolomant-imx51-utsvu-xload.img = start_imx51_utsvu_xload.pblx.imximg
+imx-xload-$(CONFIG_MACH_DOLOMANT_MX51_UTSVU) += barebox-dolomant-imx51-utsvu-xload.img
+
 ifdef CONFIG_ARCH_IMX_XLOAD
 image-y += $(imx-xload-y)
 else
