@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Bootoing from USB Flash card..."
+
+sleep 2

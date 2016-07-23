@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Dolomant specific initialisation..."
+
+exit 0

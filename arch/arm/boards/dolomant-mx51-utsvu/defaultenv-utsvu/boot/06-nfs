@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Bootoing from NFS server ..."
+
+sleep 2

@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Bootoing internal rescue system..."
+
+sleep 2

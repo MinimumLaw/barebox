@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Bootoing from internal restore partition..."
+
+sleep 2

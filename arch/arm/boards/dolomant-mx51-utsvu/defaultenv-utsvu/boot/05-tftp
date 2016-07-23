@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Bootoing from TFTP server ..."
+
+sleep 2

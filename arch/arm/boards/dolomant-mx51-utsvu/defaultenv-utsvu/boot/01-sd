@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Bootoing from SD/MMC card..."
+
+sleep 2
