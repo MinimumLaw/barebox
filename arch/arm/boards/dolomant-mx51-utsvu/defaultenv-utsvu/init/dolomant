@@ -2,4 +2,8 @@
 
 echo "Dolomant specific initialisation..."
 
+# This vars user for generate ATAGs, we user serial# and rev# env
+armlinux_system_revision=${rev#}
+armlinux_system_serial=${serial#}
+
 exit 0
