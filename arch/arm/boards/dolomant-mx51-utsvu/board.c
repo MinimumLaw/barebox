@@ -14,7 +14,7 @@
  *
  */
 
-#define pr_fmt(fmt) "babbage: " fmt
+#define pr_fmt(fmt) "utsvu: " fmt
 
 #include <common.h>
 #include <init.h>
@@ -45,7 +45,7 @@
 
 #define MX51_CCM_CACRR 0x10
 
-static void babbage_power_init(struct mc13xxx *mc13xxx)
+static void utsvu_power_init(struct mc13xxx *mc13xxx)
 {
 	u32 val;
 
@@ -139,40 +139,47 @@ static void babbage_power_init(struct mc13xxx *mc13xxx)
 		mc13xxx_reg_write(mc13xxx, MC13892_REG_SW_5, val);
 	}
 
-	/* Set VDIG to 1.65V, VGEN3 to 1.8V, VCAM to 2.6V */
+	/* Set VDIG to 1.65V, VGEN3 to 1.8V, VGEN2 to 3.15V */
 	mc13xxx_reg_read(mc13xxx, MC13892_REG_SETTING_0, &val);
-	val &=~(MC13892_SETTING_0_VGEN3_MASK |
-		MC13892_SETTING_0_VCAM_MASK);
+	val &=~(MC13892_SETTING_0_VDIG_MASK |
+		MC13892_SETTING_0_VGEN2_MASK |
+		MC13892_SETTING_0_VPLL_MASK |
+		MC13892_SETTING_0_VUSB_MASK |
+		MC13892_SETTING_0_VGEN3_MASK);
 	val |= (MC13892_SETTING_0_VDIG_1_65 |
-		MC13892_SETTING_0_VGEN3_1_8 |
-		MC13892_SETTING_0_VCAM_2_6);
+		MC13892_SETTING_0_VGEN2_3_15|
+		MC13892_SETTING_0_VPLL_1_8|
+		MC13892_SETTING_0_VUSB_2_6|
+		MC13892_SETTING_0_VGEN3_1_8 );
 	mc13xxx_reg_write(mc13xxx, MC13892_REG_SETTING_0, val);
 
-	/* Set VVIDEO to 2.775V, VAUDIO to 3V, VSD to 3.15V */
+	/* Set VVIDEO to 2.775V, VAUDIO to 3V */
 	mc13xxx_reg_read(mc13xxx, MC13892_REG_SETTING_1, &val);
 	val &=~(MC13892_SETTING_1_VVIDEO_MASK |
-		MC13892_SETTING_1_VAUDIO_MASK |
-		MC13892_SETTING_1_VSD_MASK);
+		MC13892_SETTING_1_VAUDIO_MASK);
 	val |= (MC13892_SETTING_1_VVIDEO_2_775 |
-		MC13892_SETTING_1_VAUDIO_3_0 |
-		MC13892_SETTING_1_VSD_3_15);
+		MC13892_SETTING_1_VAUDIO_3_0);
 	mc13xxx_reg_write(mc13xxx, MC13892_REG_SETTING_1, val);
 
-	/* Configure VGEN3 and VCAM regulators to use external PNP */
-	val  = (MC13892_MODE_1_VGEN3CONFIG |
-		MC13892_MODE_1_VCAMCONFIG );
+	/* Configure VGEN3 regulators to use external PNP */
+	val  = (MC13892_MODE_1_VGEN3CONFIG);
 	mc13xxx_reg_write(mc13xxx, MC13892_REG_MODE_1, val);
 
 	udelay(200);
 
-	/* Enable VGEN3, VCAM, VAUDIO, VVIDEO, VSD regulators */
+	/* Enable VIOHI, VDIG, VGEN2, VPLL, VUSB */
+	val  = (MC13892_MODE_0_VIOHIEN |
+		MC13892_MODE_0_VDIGEN |
+		MC13892_MODE_0_VGEN2EN |
+		MC13892_MODE_0_VPLLEN |
+		MC13892_MODE_0_VUSBEN);
+	mc13xxx_reg_write(mc13xxx, MC13892_REG_MODE_0, val);
+
+	/* Enable VGEN3, VVIDEO, VAUDIO regulators */
 	val  = (MC13892_MODE_1_VGEN3EN |
 		MC13892_MODE_1_VGEN3CONFIG |
-		MC13892_MODE_1_VCAMEN |
-		MC13892_MODE_1_VCAMCONFIG |
 		MC13892_MODE_1_VVIDEOEN |
-		MC13892_MODE_1_VAUDIOEN |
-		MC13892_MODE_1_VSDEN);
+		MC13892_MODE_1_VAUDIOEN);
 	mc13xxx_reg_write(mc13xxx, MC13892_REG_MODE_1, val);
 
 	udelay(200);
@@ -185,14 +192,14 @@ static void babbage_power_init(struct mc13xxx *mc13xxx)
 	clock_notifier_call_chain();
 }
 
-static int imx51_babbage_init(void)
+static int imx51_utsvu_init(void)
 {
-	if (!of_machine_is_compatible("fsl,imx51-babbage"))
+	if (!of_machine_is_compatible("fsl,imx51-utsvu"))
 		return 0;
 
-	barebox_set_hostname("babbage");
+	barebox_set_hostname("utsvu");
 
-	mc13xxx_register_init_callback(babbage_power_init);
+	mc13xxx_register_init_callback(utsvu_power_init);
 
 	armlinux_set_architecture(MACH_TYPE_MX51_BABBAGE);
 
@@ -201,11 +208,11 @@ static int imx51_babbage_init(void)
 
 	return 0;
 }
-coredevice_initcall(imx51_babbage_init);
+coredevice_initcall(imx51_utsvu_init);
 
 #ifdef CONFIG_ARCH_IMX_XLOAD
 
-static int imx51_babbage_xload_init_pinmux(void)
+static int imx51_utsvu_xload_init_pinmux(void)
 {
 	static const iomux_v3_cfg_t pinmux[] = {
 		/* (e)CSPI */
@@ -230,9 +237,9 @@ static int imx51_babbage_xload_init_pinmux(void)
 
 	return 0;
 }
-coredevice_initcall(imx51_babbage_xload_init_pinmux);
+coredevice_initcall(imx51_utsvu_xload_init_pinmux);
 
-static int imx51_babbage_xload_init_devices(void)
+static int imx51_utsvu_xload_init_devices(void)
 {
 	static int spi0_chipselects[] = {
 		IMX_GPIO_NR(4, 25),
@@ -259,6 +266,6 @@ static int imx51_babbage_xload_init_devices(void)
 
 	return 0;
 }
-device_initcall(imx51_babbage_xload_init_devices);
+device_initcall(imx51_utsvu_xload_init_devices);
 
 #endif
