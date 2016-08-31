@@ -10,9 +10,6 @@
 	model = "Dalamant i.MX515 UTSVU Board";
 	compatible = "fsl,imx51-utsvu", "fsl,imx51";
 
-	/* Board critical gpio pins config */
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_brd_ctrl>;
 
 	chosen {
 		bootargs = "
@@ -281,6 +278,26 @@ nfsroot=192.168.5.222:/cimc/root/armv7a-neon/exports,v3,tcp";
 			gpios = <&gpio3 3 GPIO_ACTIVE_HIGH>;
 			default-state = "on";
 		};
+		ulpi-en {
+			label = "ulpi_enable";
+			gpios = <&gpio2 5 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+		usb-hub-en {
+			label = "usb_hub_enable";
+			gpios = <&gpio1 7 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+		u3v3-en {
+			label = "3v3_enable";
+			gpios = <&gpio4 15 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+		u12v0-en {
+			label = "12v_enable";
+			gpios = <&gpio1 1 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
 	};
 
 	usbphy { /* USB ULPI interface */
@@ -290,49 +307,9 @@ nfsroot=192.168.5.222:/cimc/root/armv7a-neon/exports,v3,tcp";
 
 		usbh1phy: usbh1phy@0 { /* USB PHY chip*/
 			compatible = "usb-nop-xceiv";
-			pinctrl-names = "default";
-			pinctrl-0 = <&pinctrl_usbh1reg>;
 			reg = <0>;
 			clocks = <&gen_26MHz>;
 			clock-names = "gen_26MHz";
-			reset-gpios = <&gpio2 5 GPIO_ACTIVE_LOW>;
-		};
-	};
-
-	regulators {
-		compatible = "simple-bus";
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		reg_hub_reset: regulator@0 { /* USB PHY reset */
-			compatible = "regulator-fixed";
-			pinctrl-names = "default";
-			pinctrl-0 = <&pinctrl_usbotgreg>;
-			regulator-name = "hub_reset";
-			regulator-min-microvolt = <5000000>;
-			regulator-max-microvolt = <5000000>;
-			gpio = <&gpio1 7 GPIO_ACTIVE_HIGH>;
-			enable-active-high;
-		};
-
-		reg_12v_en: sw_12v_en@1 { /* 12V enabler */
-			compatible = "regulator-fixed";
-			regulator-name = "12V";
-			regulator-min-microvolt = <12000000>;
-			regulator-max-microvolt = <12000000>;
-			gpio = <&gpio1 1 GPIO_ACTIVE_HIGH>;
-			enable-active-high;
-			regulator-always-on;
-		};
-
-		reg_3v3_en: sw_3v3_en@2 { /* 3,3V enabler */
-			compatible = "regulator-fixed";
-			regulator-name = "3,3V";
-			regulator-min-microvolt = <3300000>;
-			regulator-max-microvolt = <3300000>;
-			gpio = <&gpio4 15 GPIO_ACTIVE_HIGH>;
-			enable-active-high;
-			regulator-always-on;
 		};
 	};
 
@@ -661,7 +638,6 @@ nfsroot=192.168.5.222:/cimc/root/armv7a-neon/exports,v3,tcp";
 &usbh1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_usbh1>;
-	vbus-supply = <&reg_hub_reset>;
 	fsl,usbphy = <&usbh1phy>;
 	phy_type = "ulpi";
 	status = "okay";
@@ -699,14 +675,6 @@ nfsroot=192.168.5.222:/cimc/root/armv7a-neon/exports,v3,tcp";
 
 &iomuxc {
 	imx51-utsvu {
-		pinctrl_brd_ctrl: brdctrlreg { /* Board critial gpios */
-			fsl,pins = <
-				/* power control */
-				MX51_PAD_GPIO1_1__GPIO1_1		0x000000E7	/* sw_12v_en */
-				MX51_PAD_CSI2_PIXCLK__GPIO4_15		0x000000E7	/* sw_3v3_en */
-			>;
-		};
-
 		pinctrl_ipu_disp1: ipudisp1grp { /* LVDS adapter */
 			fsl,pins = <
 				MX51_PAD_DISP1_DAT0__DISP1_DAT0		0x80000000
@@ -802,17 +770,6 @@ nfsroot=192.168.5.222:/cimc/root/armv7a-neon/exports,v3,tcp";
 			>;
 		};
 
-		pinctrl_usbh1reg: usbh1reggrp { /* USB PHY Reset - checked */
-			fsl,pins = <
-				MX51_PAD_EIM_D21__GPIO2_5		0x000000E7
-			>;
-		};
-
-		pinctrl_usbotgreg: usbotgreggrp { /* USB HUB Reset - checked */
-			fsl,pins = <
-				MX51_PAD_GPIO1_7__GPIO1_7		0x000000E7
-			>;
-		};
 
 		pinctrl_gpio_poweroff: gpiopoweroffgrp {
 			fsl,pins = < /* Open Drain */
@@ -852,6 +809,11 @@ nfsroot=192.168.5.222:/cimc/root/armv7a-neon/exports,v3,tcp";
 				MX51_PAD_EIM_A21__GPIO2_15		0x000000E7	/* BT_EN */
 				MX51_PAD_EIM_A22__GPIO2_16		0x000000E7	/* WL_EN */
 				MX51_PAD_EIM_A24__GPIO2_18		0x000000E7	/* SPI_RST */
+				MX51_PAD_EIM_D21__GPIO2_5		0x000000E7	/* ULPI reset */
+				MX51_PAD_GPIO1_7__GPIO1_7		0x000000E7	/* USB HUB reset */
+				/* power control */
+				MX51_PAD_GPIO1_1__GPIO1_1		0x000000E7	/* sw_12v_en */
+				MX51_PAD_CSI2_PIXCLK__GPIO4_15		0x000000E7	/* sw_3v3_en */
 			>;
 		};
 
