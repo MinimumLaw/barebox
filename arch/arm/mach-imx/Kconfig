@@ -418,6 +418,10 @@ config MACH_ZII_RDU2
 	bool "ZII i.MX6Q(+) RDU2"
 	select ARCH_IMX6
 
+config MACH_RAVION_RAVION200
+	bool "Radioavionica Corp. Ravion200 I.MX6Q(+) module"
+	select ARCH_IMX6
+
 config MACH_ZII_VF610_DEV
 	bool "ZII VF610 Dev Family"
 	select ARCH_VF610

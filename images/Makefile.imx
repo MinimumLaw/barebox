@@ -241,6 +241,11 @@ CFG_start_phytec_phyboard_subra_1gib_1bank.pblx.imximg = $(board)/phytec-som-imx
 FILE_barebox-phytec-phyboard-subra-1gib-1bank.img = start_phytec_phyboard_subra_1gib_1bank.pblx.imximg
 image-$(CONFIG_MACH_PHYTEC_SOM_IMX6) += barebox-phytec-phyboard-subra-1gib-1bank.img
 
+pblx-$(CONFIG_MACH_RAVION_RAVION200) += start_ravion200
+CFG_start_ravion200.pblx.imximg = $(board)/ravion-ravion200/ravion200.imxcfg
+FILE_barebox-ravion200.img = start_ravion200.pblx.imximg
+image-$(CONFIG_MACH_RAVION_RAVION200) += barebox-ravion200.img
+
 pblx-$(CONFIG_MACH_DFI_FS700_M60) += start_imx6dl_dfi_fs700_m60_6s
 CFG_start_imx6dl_dfi_fs700_m60_6s.pblx.imximg = $(board)/dfi-fs700-m60/flash-header-fs700-m60-6s.imxcfg
 FILE_barebox-dfi-fs700-m60-6s.img = start_imx6dl_dfi_fs700_m60_6s.pblx.imximg
