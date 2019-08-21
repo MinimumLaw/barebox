@@ -1,19 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * CPSW Ethernet Switch Driver
- *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  */
 
 #include <common.h>
@@ -916,7 +903,7 @@ static int cpsw_slave_setup(struct cpsw_slave *slave, int slave_num,
 	if (ret)
 		goto err_out;
 
-	sprintf(dev->name, "cpsw-slave");
+	dev_set_name(dev, "cpsw-slave");
 	dev->id = slave->slave_num;
 	dev->parent = priv->dev;
 	ret = register_device(dev);
@@ -1006,8 +993,13 @@ static int cpsw_phy_sel_init(struct cpsw_priv *priv, struct device_node *np)
 
 	phy_sel_addr = (void *)addr;
 
-	if (of_property_read_bool(np, "rmii-clock-ext"))
-		rmii_clock_external = true;
+	/*
+	 * As of Linux-5.1 this is set to true in am33xx-l4.dtsi and not
+	 * overwritten by any board. This is set to false in am437x-l4.dtsi
+	 * though, so once we support this SoC we have to configure this from
+	 * the device tree.
+	 */
+	rmii_clock_external = true;
 
 	return 0;
 }
@@ -1066,6 +1058,7 @@ static int cpsw_probe_dt(struct cpsw_priv *priv)
 {
 	struct device_d *dev = priv->dev;
 	struct device_node *np = dev->device_node, *child;
+	struct device_node *physel;
 	int ret, i = 0;
 
 	ret = of_property_read_u32(np, "slaves", &priv->num_slaves);
@@ -1074,13 +1067,16 @@ static int cpsw_probe_dt(struct cpsw_priv *priv)
 
 	priv->slaves = xzalloc(sizeof(struct cpsw_slave) * priv->num_slaves);
 
-	for_each_child_of_node(np, child) {
-		if (of_device_is_compatible(child, "ti,am3352-cpsw-phy-sel")) {
-			ret = cpsw_phy_sel_init(priv, child);
-			if (ret)
-				return ret;
-		}
+	physel = of_find_compatible_node(NULL, NULL, "ti,am3352-phy-gmii-sel");
+	if (!physel) {
+		dev_err(dev, "Cannot find ti,am3352-phy-gmii-sel node\n");
+		return -EINVAL;
+	}
+	ret = cpsw_phy_sel_init(priv, physel);
+	if (ret)
+		return ret;
 
+	for_each_child_of_node(np, child) {
 		if (of_device_is_compatible(child, "ti,davinci_mdio")) {
 			ret = of_pinctrl_select_state_default(child);
 			if (ret)
@@ -1093,8 +1089,8 @@ static int cpsw_probe_dt(struct cpsw_priv *priv)
 
 			if (!of_find_node_by_name(child, "fixed-link")) {
 				ret = of_property_read_u32_array(child, "phy_id", phy_id, 2);
-				if (ret)
-					return ret;
+				if (!ret)
+					dev_warn(dev, "phy_id is deprecated, use phy-handle\n");
 			}
 
 			slave->dev.device_node = child;
@@ -1115,7 +1111,7 @@ static int cpsw_probe_dt(struct cpsw_priv *priv)
 	return 0;
 }
 
-int cpsw_probe(struct device_d *dev)
+static int cpsw_probe(struct device_d *dev)
 {
 	struct resource *iores;
 	struct cpsw_platform_data *data = (struct cpsw_platform_data *)dev->platform_data;

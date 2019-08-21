@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * (C) Copyright 2014 - Ezequiel Garcia <ezequiel.garcia@free-electrons.com>
  *
@@ -10,17 +11,6 @@
  *   (C) Copyright 2014
  *   Pengutronix, Michael Grzeschik <mgr@pengutronix.de>
  *   Sebastian Hesselbarth <sebastian.hesselbarth@gmail.com>
-
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
  */
 
 #include <common.h>
@@ -590,7 +580,7 @@ static void mvneta_init_rx_ring(struct mvneta_port *priv)
 	priv->curr_rxdesc = 0;
 }
 
-void mvneta_setup_tx_rx(struct mvneta_port *priv)
+static void mvneta_setup_tx_rx(struct mvneta_port *priv)
 {
 	u32 val;
 

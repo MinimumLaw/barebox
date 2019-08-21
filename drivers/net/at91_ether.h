@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Ethernet driver for the Atmel AT91RM9200 (Thunder)
  *
@@ -5,11 +6,6 @@
  *
  * Based on an earlier Atmel EMAC macrocell driver by Atmel and Lineo Inc.
  * Initial version by Rick Bronson.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
  */
 
 #ifndef AT91_ETHERNET
@@ -37,7 +33,7 @@ struct rbf_t
  */
 static inline unsigned long at91_emac_read(unsigned int reg)
 {
-	return __raw_readl(AT91_VA_BASE_EMAC + reg);
+	return readl(AT91_VA_BASE_EMAC + reg);
 }
 
 /*
@@ -45,6 +41,6 @@ static inline unsigned long at91_emac_read(unsigned int reg)
  */
 static inline void at91_emac_write(unsigned int reg, unsigned long value)
 {
-	__raw_writel(value, AT91_VA_BASE_EMAC + reg);
+	writel(value, AT91_VA_BASE_EMAC + reg);
 }
 #endif

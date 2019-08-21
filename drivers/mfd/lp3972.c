@@ -17,10 +17,10 @@
  */
 
 #include <common.h>
-#include <init.h>
 #include <driver.h>
 #include <xfuncs.h>
 #include <errno.h>
+#include <mfd/lp3972.h>
 
 #include <i2c/i2c.h>
 
@@ -71,7 +71,6 @@ static ssize_t lp_read(struct cdev *cdev, void *_buf, size_t count, loff_t offse
 }
 
 static struct cdev_operations lp_fops = {
-	.lseek	= dev_lseek_default,
 	.read	= lp_read,
 };
 
@@ -96,11 +95,4 @@ static struct driver_d lp_driver = {
 	.name  = DRIVERNAME,
 	.probe = lp_probe,
 };
-
-static int lp_init(void)
-{
-	i2c_driver_register(&lp_driver);
-	return 0;
-}
-
-device_initcall(lp_init);
+device_i2c_driver(lp_driver);

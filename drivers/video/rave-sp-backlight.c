@@ -46,7 +46,8 @@ static int rave_sp_backlight_probe(struct device_d *dev)
 
 	bd = xzalloc(sizeof(*bd));
 	bd->dev.priv = dev->parent->priv;
-	bd->brightness_default = 50;
+	bd->dev.parent = dev;
+	bd->brightness = bd->brightness_cur = bd->brightness_default = 50;
 	bd->brightness_max = 100;
 	bd->brightness_set = rave_sp_backlight_set;
 

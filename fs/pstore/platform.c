@@ -25,6 +25,7 @@
 #include <linux/kernel.h>
 #include <linux/spinlock.h>
 #include <linux/mutex.h>
+#include <console.h>
 #include <malloc.h>
 #include <printk.h>
 #include <module.h>
@@ -43,14 +44,39 @@ void pstore_set_kmsg_bytes(int bytes)
 	kmsg_bytes = bytes;
 }
 
-static int pstore_write_compat(enum pstore_type_id type,
-			       enum kmsg_dump_reason reason,
-			       u64 *id, unsigned int part, int count,
-			       bool compressed, size_t size,
-			       struct pstore_info *psi)
+static int pstore_ready;
+
+void pstore_log(const char *str)
 {
-	return psi->write_buf(type, reason, id, part, psinfo->buf, compressed,
-			     size, psi);
+	uint64_t id;
+	static int in_pstore;
+
+	if (!IS_ENABLED(CONFIG_FS_PSTORE_CONSOLE))
+		return;
+
+	if (!pstore_ready)
+		return;
+
+	if (in_pstore)
+		return;
+
+	in_pstore = 1;
+
+	psinfo->write_buf(PSTORE_TYPE_CONSOLE, 0, &id, 0,
+			  str, 0, strlen(str), psinfo);
+
+	in_pstore = 0;
+}
+
+static void pstore_console_capture_log(void)
+{
+	uint64_t id;
+	struct log_entry *log, *tmp;
+
+	list_for_each_entry_safe(log, tmp, &barebox_logbuf, list) {
+		psinfo->write_buf(PSTORE_TYPE_CONSOLE, 0, &id, 0,
+				  log->msg, 0, strlen(log->msg), psinfo);
+	}
 }
 
 /*
@@ -73,13 +99,14 @@ int pstore_register(struct pstore_info *psi)
 		return -EBUSY;
 	}
 
-	if (!psi->write)
-		psi->write = pstore_write_compat;
 	psinfo = psi;
 	mutex_init(&psinfo->read_mutex);
 	spin_unlock(&pstore_lock);
 
 	pstore_get_records(0);
+
+	pstore_console_capture_log();
+	pstore_ready = 1;
 
 	pr_info("Registered %s as persistent store backend\n", psi->name);
 
@@ -96,13 +123,8 @@ EXPORT_SYMBOL_GPL(pstore_register);
 void pstore_get_records(int quiet)
 {
 	struct pstore_info *psi = psinfo;
-	char			*buf = NULL;
-	ssize_t			size;
-	u64			id;
-	int			count;
-	enum pstore_type_id	type;
+	struct pstore_record	record = { .psi = psi, };
 	int			failed = 0, rc;
-	bool			compressed;
 	int			unzipped_len = -1;
 
 	if (!psi)
@@ -112,22 +134,24 @@ void pstore_get_records(int quiet)
 	if (psi->open && psi->open(psi))
 		goto out;
 
-	while ((size = psi->read(&id, &type, &count, &buf, &compressed,
-				psi)) > 0) {
-		if (compressed && (type == PSTORE_TYPE_DMESG)) {
+	while ((record.size = psi->read(&record)) > 0) {
+		if (record.compressed &&
+		    record.type == PSTORE_TYPE_DMESG) {
 			pr_err("barebox does not have ramoops compression support\n");
 			continue;
 		}
-		rc = pstore_mkfile(type, psi->name, id, count, buf,
-				  compressed, (size_t)size, psi);
+		rc = pstore_mkfile(&record);
 		if (unzipped_len < 0) {
 			/* Free buffer other than big oops */
-			kfree(buf);
-			buf = NULL;
+			kfree(record.buf);
+			record.buf = NULL;
 		} else
 			unzipped_len = -1;
 		if (rc && (rc != -EEXIST || !quiet))
 			failed++;
+
+		memset(&record, 0, sizeof(record));
+		record.psi = psi;
 	}
 	if (psi->close)
 		psi->close(psi);

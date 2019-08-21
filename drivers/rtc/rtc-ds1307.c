@@ -14,7 +14,6 @@
  */
 
 #include <common.h>
-#include <init.h>
 #include <driver.h>
 #include <xfuncs.h>
 #include <malloc.h>
@@ -112,6 +111,7 @@ static struct platform_device_id ds1307_id[] = {
 	{ "ds1308", ds_1338 }, /* Difference 1308 to 1338 irrelevant */
 	{ "ds1338", ds_1338 },
 	{ "ds1341", ds_1341 },
+	{ "ds3231", ds_1337 },
 	{ "pt7c4338", ds_1307 },
 	{ }
 };
@@ -348,10 +348,10 @@ static int ds1307_probe(struct device_d *dev)
 			ds1307->regs[1] &= ~DS1341_BIT_ECLK;
 
 			/*
-			 * Let's set additionale RTC bits to
+			 * Let's set additional RTC bits to
 			 * facilitate maximum power saving.
 			 */
-			ds1307->regs[0] |=  DS1341_BIT_DOSF;
+			ds1307->regs[1] |=  DS1341_BIT_DOSF;
 			ds1307->regs[0] &= ~DS1341_BIT_EGFIL;
 
 			i2c_smbus_write_byte_data(client, DS1337_REG_CONTROL,
@@ -489,9 +489,4 @@ static struct driver_d ds1307_driver = {
 	.probe		= ds1307_probe,
 	.id_table	= ds1307_id,
 };
-
-static int __init ds1307_init(void)
-{
-	return i2c_driver_register(&ds1307_driver);
-}
-device_initcall(ds1307_init);
+device_i2c_driver(ds1307_driver);

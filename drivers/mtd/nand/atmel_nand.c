@@ -788,7 +788,6 @@ static int pmecc_build_galois_table(unsigned int mm, int16_t *index_of,
 	case 3:
 	case 4:
 	case 6:
-	case 15:
 		p[1] = 1;
 		break;
 	case 5:
@@ -1298,6 +1297,7 @@ static int atmel_hw_nand_init_params(struct device_d *dev,
 	nand_chip->ecc.hwctl = atmel_nand_hwctl;
 	nand_chip->ecc.read_page = atmel_nand_read_page;
 	nand_chip->ecc.bytes = 4;
+	nand_chip->ecc.strength = 1;
 
 	return 0;
 }
@@ -1388,6 +1388,8 @@ static int __init atmel_nand_probe(struct device_d *dev)
 	}
 
 	nand_chip->ecc.mode = pdata->ecc_mode;
+	nand_chip->ecc.strength = pdata->ecc_strength ? : 1;
+	nand_chip->ecc.size = 1 << pdata->ecc_size_shift ? : 512;
 
 	if (IS_ENABLED(CONFIG_NAND_ECC_HW) &&
 	    pdata->ecc_mode == NAND_ECC_HW) {
@@ -1429,14 +1431,14 @@ static int __init atmel_nand_probe(struct device_d *dev)
 		}
 
 		if (gpio_get_value(host->board->det_pin)) {
-			printk("No SmartMedia card inserted.\n");
+			dev_info(dev, "No SmartMedia card inserted.\n");
 			res = -ENXIO;
 			goto err_no_card;
 		}
 	}
 
 	if (host->board->on_flash_bbt) {
-		printk(KERN_INFO "atmel_nand: Use On Flash BBT\n");
+		dev_info(dev, "Use On Flash BBT\n");
 		nand_chip->bbt_options |= NAND_BBT_USE_FLASH;
 	}
 

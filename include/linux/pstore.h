@@ -25,6 +25,8 @@
 #include <linux/types.h>
 #include <asm-generic/errno.h>
 
+struct module;
+
 /* types */
 enum pstore_type_id {
 	PSTORE_TYPE_DMESG	= 0,
@@ -43,23 +45,30 @@ enum kmsg_dump_reason {
 	KMSG_DUMP_UNDEF,
 };
 
-struct module;
+struct pstore_info;
+
+struct pstore_record {
+	struct pstore_info	*psi;
+	enum pstore_type_id	type;
+	u64			id;
+	char			*buf;
+	ssize_t			size;
+	ssize_t			ecc_notice_size;
+
+	int			count;
+	enum kmsg_dump_reason	reason;
+	unsigned int		part;
+	bool			compressed;
+};
 
 struct pstore_info {
 	struct module	*owner;
 	char		*name;
-	char		*buf;
-	size_t		bufsize;
 	int		flags;
 	int		(*open)(struct pstore_info *psi);
 	int		(*close)(struct pstore_info *psi);
-	ssize_t		(*read)(u64 *id, enum pstore_type_id *type,
-			int *count, char **buf, bool *compressed,
-			struct pstore_info *psi);
-	int		(*write)(enum pstore_type_id type,
-			enum kmsg_dump_reason reason, u64 *id,
-			unsigned int part, int count, bool compressed,
-			size_t size, struct pstore_info *psi);
+	ssize_t		(*read)(struct pstore_record *record);
+	int		(*write)(struct pstore_record *record);
 	int		(*write_buf)(enum pstore_type_id type,
 			enum kmsg_dump_reason reason, u64 *id,
 			unsigned int part, const char *buf, bool compressed,
@@ -74,6 +83,7 @@ struct pstore_info {
 #ifdef CONFIG_FS_PSTORE
 extern int pstore_register(struct pstore_info *);
 extern bool pstore_cannot_block_path(enum kmsg_dump_reason reason);
+extern void pstore_log(const char *msg);
 #else
 static inline int
 pstore_register(struct pstore_info *psi)
@@ -84,6 +94,9 @@ static inline bool
 pstore_cannot_block_path(enum kmsg_dump_reason reason)
 {
 	return false;
+}
+static inline void pstore_log(const char *msg)
+{
 }
 #endif
 

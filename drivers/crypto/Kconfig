@@ -1,10 +1,10 @@
 
 menuconfig CRYPTO_HW
 	bool "Hardware crypto devices"
-	help
 
 if CRYPTO_HW
 
-source drivers/crypto/caam/Kconfig
+source "drivers/crypto/caam/Kconfig"
+source "drivers/crypto/imx-scc/Kconfig"
 
 endif

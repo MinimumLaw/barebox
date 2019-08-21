@@ -228,7 +228,6 @@ static struct cdev_operations fb_ops = {
 	.read	= mem_read,
 	.write	= mem_write,
 	.memmap	= generic_memmap_rw,
-	.lseek	= dev_lseek_default,
 	.ioctl	= fb_ioctl,
 	.close  = fb_close,
 	.flush  = fb_op_flush,
@@ -309,7 +308,7 @@ int register_framebuffer(struct fb_info *info)
 	dev->id = id;
 	dev->info = fb_info;
 
-	sprintf(dev->name, "fb");
+	dev_set_name(dev, "fb");
 
 	ret = register_device(&info->dev);
 	if (ret)

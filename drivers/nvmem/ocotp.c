@@ -51,7 +51,7 @@
 #define OCOTP_CTRL_WR_UNLOCK_KEY	0x3E77
 #define OCOTP_CTRL_WR_UNLOCK_MASK	0xFFFF0000
 #define OCOTP_CTRL_ADDR			0
-#define OCOTP_CTRL_ADDR_MASK		0x0000007F
+#define OCOTP_CTRL_ADDR_MASK		0x000000FF
 #define OCOTP_CTRL_BUSY			(1 << 8)
 #define OCOTP_CTRL_ERROR		(1 << 9)
 #define OCOTP_CTRL_RELOAD_SHADOWS	(1 << 10)
@@ -59,6 +59,7 @@
 #define OCOTP_TIMING_STROBE_READ_MASK	0x003F0000
 #define OCOTP_TIMING_RELAX_MASK		0x0000F000
 #define OCOTP_TIMING_STROBE_PROG_MASK	0x00000FFF
+#define OCOTP_TIMING_WAIT_MASK		0x0FC00000
 
 #define OCOTP_READ_CTRL_READ_FUSE	0x00000001
 
@@ -68,8 +69,11 @@
 
 /* Other definitions */
 #define IMX6_OTP_DATA_ERROR_VAL		0xBADABADA
-#define DEF_RELAX			20
+#define TIMING_STROBE_PROG_US		10
+#define TIMING_STROBE_READ_NS		37
+#define TIMING_RELAX_NS			17
 #define MAC_OFFSET_0			(0x22 * 4)
+#define IMX6UL_MAC_OFFSET_1		(0x23 * 4)
 #define MAC_OFFSET_1			(0x24 * 4)
 #define MAX_MAC_OFFSETS			2
 #define MAC_BYTES			8
@@ -117,13 +121,42 @@ static int imx6_ocotp_set_timing(struct ocotp_priv *priv)
 	u32 relax, strobe_read, strobe_prog;
 	u32 timing;
 
+	/*
+	 * Note: there are minimum timings required to ensure an OTP fuse burns
+	 * correctly that are independent of the ipg_clk. Those values are not
+	 * formally documented anywhere however, working from the minimum
+	 * timings given in u-boot we can say:
+	 *
+	 * - Minimum STROBE_PROG time is 10 microseconds. Intuitively 10
+	 *   microseconds feels about right as representative of a minimum time
+	 *   to physically burn out a fuse.
+	 *
+	 * - Minimum STROBE_READ i.e. the time to wait post OTP fuse burn before
+	 *   performing another read is 37 nanoseconds
+	 *
+	 * - Minimum RELAX timing is 17 nanoseconds. This final RELAX minimum
+	 *   timing is not entirely clear the documentation says "This
+	 *   count value specifies the time to add to all default timing
+	 *   parameters other than the Tpgm and Trd. It is given in number
+	 *   of ipg_clk periods." where Tpgm and Trd refer to STROBE_PROG
+	 *   and STROBE_READ respectively. What the other timing parameters
+	 *   are though, is not specified. Experience shows a zero RELAX
+	 *   value will mess up a re-load of the shadow registers post OTP
+	 *   burn.
+	 */
 	clk_rate = clk_get_rate(priv->clk);
 
-	relax = clk_rate / (1000000000 / DEF_RELAX) - 1;
-	strobe_prog = clk_rate / (1000000000 / 10000) + 2 * (DEF_RELAX + 1) - 1;
-	strobe_read = clk_rate / (1000000000 / 40) + 2 * (DEF_RELAX + 1) - 1;
+	relax = DIV_ROUND_UP(clk_rate * TIMING_RELAX_NS, 1000000000) - 1;
 
-	timing = BF(relax, OCOTP_TIMING_RELAX);
+	strobe_read = DIV_ROUND_UP(clk_rate * TIMING_STROBE_READ_NS,
+				   1000000000);
+	strobe_read += 2 * (relax + 1) - 1;
+	strobe_prog = DIV_ROUND_CLOSEST(clk_rate * TIMING_STROBE_PROG_US,
+					1000000);
+	strobe_prog += 2 * (relax + 1) - 1;
+
+	timing = readl(priv->base + OCOTP_TIMING) & OCOTP_TIMING_WAIT_MASK;
+	timing |= BF(relax, OCOTP_TIMING_RELAX);
 	timing |= BF(strobe_read, OCOTP_TIMING_STROBE_READ);
 	timing |= BF(strobe_prog, OCOTP_TIMING_STROBE_PROG);
 
@@ -184,7 +217,7 @@ static int fuse_read_addr(struct ocotp_priv *priv, u32 addr, u32 *pdata)
 	return 0;
 }
 
-int imx6_ocotp_read_one_u32(struct ocotp_priv *priv, u32 index, u32 *pdata)
+static int imx6_ocotp_read_one_u32(struct ocotp_priv *priv, u32 index, u32 *pdata)
 {
 	int ret;
 
@@ -257,7 +290,7 @@ static int imx6_ocotp_reload_shadow(struct ocotp_priv *priv)
 	return imx6_ocotp_wait_busy(priv, OCOTP_CTRL_RELOAD_SHADOWS);
 }
 
-int imx6_ocotp_blow_one_u32(struct ocotp_priv *priv, u32 index, u32 data,
+static int imx6_ocotp_blow_one_u32(struct ocotp_priv *priv, u32 index, u32 data,
 			    u32 *pfused_value)
 {
 	int ret;
@@ -421,10 +454,14 @@ static int imx_ocotp_read_mac(const struct imx_ocotp_data *data,
 	int ret;
 
 	ret = regmap_bulk_read(map, offset, buf, MAC_BYTES);
+
 	if (ret < 0)
 		return ret;
 
-	data->format_mac(mac, buf, OCOTP_HW_TO_MAC);
+	if (offset != IMX6UL_MAC_OFFSET_1)
+		data->format_mac(mac, buf, OCOTP_HW_TO_MAC);
+	else
+		data->format_mac(mac, buf + 2, OCOTP_HW_TO_MAC);
 
 	return 0;
 }
@@ -441,9 +478,18 @@ static int imx_ocotp_set_mac(struct param_d *param, void *priv)
 {
 	char buf[MAC_BYTES];
 	struct ocotp_priv_ethaddr *ethaddr = priv;
+	int ret;
 
-	ethaddr->data->format_mac(buf, ethaddr->value,
-				  OCOTP_MAC_TO_HW);
+	ret = regmap_bulk_read(ethaddr->map, ethaddr->offset, buf, MAC_BYTES);
+	if (ret < 0)
+		return ret;
+
+	if (ethaddr->offset != IMX6UL_MAC_OFFSET_1)
+		ethaddr->data->format_mac(buf, ethaddr->value,
+					  OCOTP_MAC_TO_HW);
+	else
+		ethaddr->data->format_mac(buf + 2, ethaddr->value,
+					  OCOTP_MAC_TO_HW);
 
 	return regmap_bulk_write(ethaddr->map, ethaddr->offset,
 				 buf, MAC_BYTES);
@@ -531,7 +577,7 @@ static int imx_ocotp_probe(struct device_d *dev)
 	if (IS_ERR(priv->clk))
 		return PTR_ERR(priv->clk);
 
-	strcpy(priv->dev.name, "ocotp");
+	dev_set_name(&priv->dev, "ocotp");
 	priv->dev.parent = dev;
 	register_device(&priv->dev);
 
@@ -639,6 +685,14 @@ static struct imx_ocotp_data imx6sl_ocotp_data = {
 	.format_mac = imx_ocotp_format_mac,
 };
 
+static struct imx_ocotp_data imx6ul_ocotp_data = {
+	.num_regs = 512,
+	.addr_to_offset = imx6q_addr_to_offset,
+	.mac_offsets_num = 2,
+	.mac_offsets = { MAC_OFFSET_0, IMX6UL_MAC_OFFSET_1 },
+	.format_mac = imx_ocotp_format_mac,
+};
+
 static struct imx_ocotp_data vf610_ocotp_data = {
 	.num_regs = 512,
 	.addr_to_offset = vf610_addr_to_offset,
@@ -667,7 +721,7 @@ static __maybe_unused struct of_device_id imx_ocotp_dt_ids[] = {
 		.data = &imx6sl_ocotp_data,
 	}, {
 		.compatible = "fsl,imx6ul-ocotp",
-		.data = &imx6q_ocotp_data,
+		.data = &imx6ul_ocotp_data,
 	}, {
 		.compatible = "fsl,imx8mq-ocotp",
 		.data = &imx8mq_ocotp_data,
@@ -684,11 +738,4 @@ static struct driver_d imx_ocotp_driver = {
 	.probe	= imx_ocotp_probe,
 	.of_compatible = DRV_OF_COMPAT(imx_ocotp_dt_ids),
 };
-
-static int imx_ocotp_init(void)
-{
-	platform_driver_register(&imx_ocotp_driver);
-
-	return 0;
-}
-postcore_initcall(imx_ocotp_init);
+postcore_platform_driver(imx_ocotp_driver);

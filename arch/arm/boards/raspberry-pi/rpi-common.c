@@ -16,21 +16,28 @@
 #include <common.h>
 #include <init.h>
 #include <fs.h>
+#include <of.h>
 #include <linux/stat.h>
 #include <linux/clk.h>
 #include <linux/clkdev.h>
 #include <envfs.h>
 #include <malloc.h>
+#include <libfile.h>
 #include <gpio.h>
 #include <net.h>
 #include <led.h>
 #include <asm/armlinux.h>
+#include <asm/barebox-arm.h>
 #include <generated/mach-types.h>
+#include <linux/sizes.h>
+#include <globalvar.h>
 
 #include <mach/core.h>
 #include <mach/mbox.h>
+#include <mach/platform.h>
 
 #include "rpi.h"
+#include "lowlevel.h"
 
 struct msg_get_arm_mem {
 	struct bcm2835_mbox_hdr hdr;
@@ -73,7 +80,7 @@ static int rpi_get_arm_mem(u32 *size)
 	return 0;
 }
 
-static struct clk *rpi_register_firmare_clock(u32 clock_id, const char *name)
+static struct clk *rpi_register_firmware_clock(u32 clock_id, const char *name)
 {
 	BCM2835_MBOX_STACK_ALIGN(struct msg_get_clock_rate, msg);
 	int ret;
@@ -121,7 +128,7 @@ struct gpio_led rpi_leds[] = {
 	},
 };
 
-void rpi_add_led(void)
+static void rpi_add_led(void)
 {
 	int i;
 	struct gpio_led *l;
@@ -138,14 +145,14 @@ void rpi_add_led(void)
 		led_set_trigger(LED_TRIGGER_HEARTBEAT, &l->led);
 }
 
-void rpi_b_init(void)
+static void rpi_b_init(void)
 {
 	rpi_leds[0].gpio = 16;
 	rpi_leds[0].active_low = 1;
 	rpi_set_usbethaddr();
 }
 
-void rpi_b_plus_init(void)
+static void rpi_b_plus_init(void)
 {
 	rpi_leds[0].gpio = 47;
 	rpi_leds[1].gpio = 35;
@@ -166,18 +173,36 @@ const struct rpi_model rpi_models_old_scheme[] = {
 	RPI_MODEL(BCM2835_BOARD_REV_B_REV2_d, "Model B rev2", rpi_b_init),
 	RPI_MODEL(BCM2835_BOARD_REV_B_REV2_e, "Model B rev2", rpi_b_init),
 	RPI_MODEL(BCM2835_BOARD_REV_B_REV2_f, "Model B rev2", rpi_b_init),
-	RPI_MODEL(BCM2835_BOARD_REV_B_PLUS, "Model B+", rpi_b_plus_init),
-	RPI_MODEL(BCM2835_BOARD_REV_CM, "Compute Module", NULL),
-	RPI_MODEL(BCM2835_BOARD_REV_A_PLUS, "Model A+", NULL),
+	RPI_MODEL(BCM2835_BOARD_REV_B_PLUS_10, "Model B+", rpi_b_plus_init),
+	RPI_MODEL(BCM2835_BOARD_REV_CM_11, "Compute Module", NULL),
+	RPI_MODEL(BCM2835_BOARD_REV_A_PLUS_12, "Model A+", NULL),
+	RPI_MODEL(BCM2835_BOARD_REV_B_PLUS_13, "Model B+", rpi_b_plus_init),
+	RPI_MODEL(BCM2835_BOARD_REV_CM_14, "Compute Module", NULL),
+	RPI_MODEL(BCM2835_BOARD_REV_A_PLUS_15, "Model A+", NULL),
 };
 
 const struct rpi_model rpi_models_new_scheme[] = {
-	RPI_MODEL(0, "Unknown model", NULL),
-	RPI_MODEL(BCM2836_BOARD_REV_2_B, "2 Model B", rpi_b_plus_init),
+	RPI_MODEL(BCM2835_BOARD_REV_A, 		"Model A",	NULL ),
+	RPI_MODEL(BCM2835_BOARD_REV_B, 		"Model B", 	rpi_b_init ),
+	RPI_MODEL(BCM2835_BOARD_REV_A_PLUS, 	"Model A+", 	NULL ),
+	RPI_MODEL(BCM2835_BOARD_REV_B_PLUS, 	"Model B+", 	rpi_b_plus_init ),
+	RPI_MODEL(BCM2836_BOARD_REV_2_B, 	"Model 2B", 	rpi_b_plus_init),
+	RPI_MODEL(BCM283x_BOARD_REV_Alpha, 	"Alpha", 	NULL),
+	RPI_MODEL(BCM2835_BOARD_REV_CM1, 	"Compute Module", NULL ),
+	RPI_MODEL(0x7, "Unknown model", NULL),
+	RPI_MODEL(BCM2837_BOARD_REV_3_B, 	"Model 3B", 	rpi_b_init ),
+	RPI_MODEL(BCM2835_BOARD_REV_ZERO, 	"Zero", 	rpi_b_plus_init),
+	RPI_MODEL(BCM2837_BOARD_REV_CM3, 	"Compute Module 3", NULL ),
+	RPI_MODEL(0xb, "Unknown model", NULL),
+	RPI_MODEL(BCM2835_BOARD_REV_ZERO_W, 	"Zero W", 	rpi_b_plus_init),
+	RPI_MODEL(BCM2837B0_BOARD_REV_3B_PLUS, 	"Model 3 B+", 	rpi_b_plus_init ),
+	RPI_MODEL(BCM2837B0_BOARD_REV_3A_PLUS, 	"Nodel 3 A+", 	rpi_b_plus_init),
+	RPI_MODEL(0xf, "Unknown model", NULL),
+	RPI_MODEL(BCM2837B0_BOARD_REV_CM3_PLUS, "Compute Module 3+", NULL),
 };
 
 static int rpi_board_rev = 0;
-const struct rpi_model *model;
+const struct rpi_model *model = NULL;
 
 static void rpi_get_board_rev(void)
 {
@@ -248,6 +273,9 @@ unknown_rev:
 
 static void rpi_model_init(void)
 {
+	if (!model)
+		return;
+
 	if (!model->init)
 		return;
 
@@ -283,17 +311,51 @@ static int rpi_clock_init(void)
 {
 	struct clk *clk;
 
-	clk = rpi_register_firmare_clock(BCM2835_MBOX_CLOCK_ID_EMMC,
+	clk = rpi_register_firmware_clock(BCM2835_MBOX_CLOCK_ID_EMMC,
 					 "bcm2835_mci0");
 	if (IS_ERR(clk))
 		return PTR_ERR(clk);
 
-	clk_register_clkdev(clk, NULL, "20300000.sdhci");
-	clk_register_clkdev(clk, NULL, "3f300000.sdhci");
+	clkdev_add_physbase(clk, 0x20300000, NULL);
+	clkdev_add_physbase(clk, 0x3f300000, NULL);
+
+	clk = rpi_register_firmware_clock(BCM2835_MBOX_CLOCK_ID_CORE,
+					  "bcm2835_sdhost");
+	if (IS_ERR(clk))
+		return PTR_ERR(clk);
+
+	clkdev_add_physbase(clk, 0x20202000, NULL);
+	clkdev_add_physbase(clk, 0x3f202000, NULL);
 
 	return 0;
 }
 postconsole_initcall(rpi_clock_init);
+
+static int rpi_console_clock_init(void)
+{
+	struct clk *clk;
+
+	clk = clk_fixed("apb_pclk", 0);
+	clk_register_clkdev(clk, "apb_pclk", NULL);
+
+	clk = clk_fixed("uart0-pl0110", 3 * 1000 * 1000);
+	clk_register_clkdev(clk, NULL, "uart0-pl0110");
+	clkdev_add_physbase(clk, BCM2835_PL011_BASE, NULL);
+	clkdev_add_physbase(clk, BCM2836_PL011_BASE, NULL);
+
+	clk = rpi_register_firmware_clock(BCM2835_MBOX_CLOCK_ID_CORE,
+					  "uart1-8250");
+	if (IS_ERR(clk))
+		return PTR_ERR(clk);
+
+	clkdev_add_physbase(clk, BCM2836_MINIUART_BASE, NULL);
+
+	clk = clk_fixed("bcm2835-cs", 1 * 1000 * 1000);
+	clk_register_clkdev(clk, NULL, "bcm2835-cs");
+
+	return 0;
+}
+postcore_initcall(rpi_console_clock_init);
 
 static int rpi_env_init(void)
 {
@@ -321,12 +383,87 @@ static int rpi_env_init(void)
 	return 0;
 }
 
+/* Extract /chosen/bootargs from the VideoCore FDT into vc.bootargs
+ * global variable. */
+static int rpi_vc_fdt_bootargs(void *fdt)
+{
+	int ret = 0;
+	struct device_node *root = NULL, *node;
+	const char *cmdline;
+
+	root = of_unflatten_dtb(fdt);
+	if (IS_ERR(root)) {
+		ret = PTR_ERR(root);
+		root = NULL;
+		goto out;
+	}
+
+	node = of_find_node_by_path_from(root, "/chosen");
+	if (!node) {
+		pr_err("no /chosen node\n");
+		ret = -ENOENT;
+		goto out;
+	}
+
+	cmdline = of_get_property(node, "bootargs", NULL);
+	if (!cmdline) {
+		pr_err("no bootargs property in the /chosen node\n");
+		ret = -ENOENT;
+		goto out;
+	}
+
+	globalvar_add_simple("vc.bootargs", cmdline);
+
+out:
+	if (root)
+		of_delete_node(root);
+
+	return ret;
+}
+
+static void rpi_vc_fdt(void)
+{
+	void *saved_vc_fdt;
+	struct fdt_header *oftree;
+	unsigned long magic, size;
+	int ret;
+
+	/* VideoCore FDT was copied in PBL just above Barebox memory */
+	saved_vc_fdt = (void *)(arm_mem_endmem_get());
+
+	oftree = saved_vc_fdt;
+	magic = be32_to_cpu(oftree->magic);
+	if (magic != FDT_MAGIC) {
+		pr_err("videocore fdt saved in pbl has invalid magic\n");
+
+		if (magic == VIDEOCORE_FDT_ERROR) {
+			pr_err("there was an error copying fdt in pbl: %d\n",
+					be32_to_cpu(oftree->totalsize));
+		}
+		return;
+	}
+
+	size = be32_to_cpu(oftree->totalsize);
+	if (write_file("/vc.dtb", saved_vc_fdt, size)) {
+		pr_err("failed to save videocore fdt to a file\n");
+		return;
+	}
+
+	ret = rpi_vc_fdt_bootargs(saved_vc_fdt);
+	if (ret) {
+		pr_err("failed to extract bootargs from videocore fdt: %d\n",
+									ret);
+		return;
+	}
+}
+
 static int rpi_devices_init(void)
 {
 	rpi_model_init();
 	bcm2835_register_fb();
 	armlinux_set_architecture(MACH_TYPE_BCM2708);
 	rpi_env_init();
+	rpi_vc_fdt();
 	return 0;
 }
 late_initcall(rpi_devices_init);

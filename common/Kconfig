@@ -1,16 +1,8 @@
-config ARCH
-	string
-	option env="ARCH"
-
-config KERNELVERSION
-	string
-	option env="KERNELVERSION"
-
 config DEFCONFIG_LIST
 	string
 	option defconfig_list
-	default "$ARCH_DEFCONFIG"
-	default "arch/$ARCH/defconfig"
+	default ARCH_DEFCONFIG
+	default "arch/$(ARCH)/defconfig"
 
 config GREGORIAN_CALENDER
 	bool
@@ -113,6 +105,13 @@ config UBIFORMAT
 	select LIBSCAN
 	select LIBUBIGEN
 	depends on MTD_UBI
+	default y
+
+config USBGADGET_START
+	bool
+	depends on CMD_USBGADGET || USB_GADGET_AUTOSTART
+	select ENVIRONMENT_VARIABLES
+	select FILE_LIST
 	default y
 
 config BOOT
@@ -245,16 +244,6 @@ config BAREBOX_MAX_BARE_INIT_SIZE
 	  Define the maximum size of bare_init
 	  this will allow your bare_init to fit in SRAM as example
 	  ARCH can overwrite it via ARCH_BAREBOX_MAX_BARE_INIT_SIZE
-
-config BAREBOX_MAX_PBLX_SIZE
-	depends on PBL_MULTI_IMAGES
-	depends on IMAGE_COMPRESSION
-	prompt "Maximum PBLX size"
-	hex
-	default 0xffffffff
-	help
-	  Define the maximum size of the PBLX image.
-	  The pblx is a self extracting barebox binary.
 
 config HAVE_CONFIGURABLE_MEMORY_LAYOUT
 	bool
@@ -641,7 +630,9 @@ config BOOTM_FITIMAGE_PUBKEY
 	default "../fit/pubkey.dtsi"
 	depends on BOOTM_FITIMAGE_SIGNATURE
 	help
-	  Set Path to a dts snippet which holds the public keys for FIT images.
+	  Set Path to a dts snippet which holds the public keys for FIT images. The
+	  snippet can then be included in a device tree with
+	  "#include CONFIG_BOOTM_FITIMAGE_PUBKEY".
 
 config BOOTM_FORCE_SIGNED_IMAGES
 	bool
@@ -652,8 +643,28 @@ config BOOTM_FORCE_SIGNED_IMAGES
 	  are refused to boot. Effectively this means only FIT images can be booted
 	  since they are the only supported image type that support signing.
 
+config BOOTM_OPTEE
+	bool
+	prompt "support booting OP-TEE"
+	depends on BOOTM && ARM
+	help
+	  OP-TEE is a trusted execution environment (TEE). With this option
+	  enabled barebox supports starting optee_os as part of the bootm command.
+	  Instead of the kernel bootm starts the optee_os binary which then starts
+	  the kernel in nonsecure mode. Pass the optee_os binary with the -t option
+	  or in the global.bootm.tee variable.
+
+config BOOTM_OPTEE_SIZE
+	hex
+	default 0x02000000
+	prompt "OP-TEE Memory Size"
+	depends on BOOTM_OPTEE
+	help
+	  Size to reserve in main memory for OP-TEE.
+	  Can be smaller than the actual size used by OP-TEE, this is used to prevent
+	  barebox from allocating memory in this area.
+
 config BLSPEC
-	depends on BLOCK
 	depends on FLEXIBLE_BOOTARGS
 	depends on !SHELL_NONE
 	select BOOT
@@ -774,13 +785,13 @@ config PBL_CONSOLE
 	  must be running at the address it's linked at and bss must
 	  be cleared. On ARM that would be after setup_c().
 
-source common/ratp/Kconfig
+source "common/ratp/Kconfig"
 
 config PARTITION
 	bool
 	prompt "Enable Partitions"
 
-source common/partitions/Kconfig
+source "common/partitions/Kconfig"
 
 config ENV_HANDLING
 	select CRC32
@@ -860,6 +871,8 @@ config DEFAULT_ENVIRONMENT_GENERIC_NEW
 	select FLEXIBLE_BOOTARGS
 	select CMD_BOOT
 	select NET_CMD_IFUP if NET
+	select CMD_IP_ROUTE_GET if NET
+	select CMD_HOST if NET
 
 config DEFAULT_ENVIRONMENT_GENERIC
 	bool "Generic environment template (old version)"
@@ -1007,20 +1020,24 @@ config DEFAULT_LOGLEVEL
 	  7    debug-level messages (debug)
 	  8    verbose debug messages (vdebug)
 
-config DEBUG_INFO
-	bool
-	prompt "enable debug symbols"
-	help
-	  Enable build of barebox with -g.
-
 config DEBUG_LL
 	bool
 	depends on HAS_DEBUG_LL
-	prompt "low level debug messages"
+	prompt "Low level debug messages (read help)"
 	help
-	  Enable this to get low level debug messages during barebox initialization.
-	  This requires SoC specific support. Most SoCs require the debug UART to be
-	  initialized by a debugger or first stage bootloader.
+	  Enable this to get low level debug messages during barebox
+	  initialization. This is helpful if you are debugging code that
+	  executes before the console is initialized.
+
+	  This requires SoC specific support. Most SoCs require the
+	  debug UART to be initialized by a debugger or first stage
+	  bootloader.
+
+	  Note that selecting this option will limit barebox to a single
+	  UART definition, as specified below under "low-level debugging
+	  port". Attempting to boot the resulting image on a different
+	  platform *will not work*, so this option should not be enabled
+	  for builds that are intended to be portable.
 
 choice
 	prompt "Kernel low-level debugging port"
@@ -1159,7 +1176,33 @@ config DEBUG_SOCFPGA_UART1
 	  Say Y here if you want kernel low-level debugging support
 	  on SOCFPGA(Arria 10) based platforms.
 
+config DEBUG_RPI1_UART
+	bool "RaspberryPi 1 PL011 UART"
+	depends on ARCH_BCM283X
+	help
+	  Say Y here if you want low-level debugging support on
+	  RaspberryPi 1 boards.
 
+config DEBUG_AT91_UART
+	bool "AT91 Debug UART"
+	depends on ARCH_AT91
+	help
+	  Say Y here if you want barebox low-level debugging support
+	  on AT91 based platforms.
+
+config DEBUG_RPI2_3_UART
+	bool "RaspberryPi 2/3 PL011 UART"
+	depends on ARCH_BCM283X
+	help
+	  Say Y here if you want low-level debugging support on
+	  RaspberryPi 2 and 3 boards.
+
+config DEBUG_RPI3_MINI_UART
+	bool "RaspberryPi 3 mini UART"
+	depends on ARCH_BCM283X
+	help
+	  Say Y here if you want low-level debugging support on
+	  RaspberryPi 3 board mini UART.
 endchoice
 
 config DEBUG_IMX_UART_PORT
@@ -1217,10 +1260,40 @@ config DEBUG_SOCFPGA_UART_CLOCK
 	help
 	  Choose UART root clock.
 
+
+config DEBUG_LAYERSCAPE_UART_PORT
+	int "Layerscape UART port selection"
+	depends on ARCH_LAYERSCAPE
+	default 1
+	help
+	  Select the UART port number used for early debugging here. Port
+	  numbers start counting from 1.
+
+config DEBUG_AT91_UART_BASE
+	hex "AT91 Debug UART Port Selection" if DEBUG_AT91_UART
+	default 0xfffff200 if SOC_AT91RM9200  || SOC_AT91SAM9260 \
+	                   || SOC_AT91SAM9261 || SOC_AT91SAM9X5  \
+			   || SOC_AT91SAM9N12
+	default 0xffffee00 if SOC_AT91SAM9263 || SOC_AT91SAM9G45 || ARCH_SAMA5D3
+	default 0xfc069000 if ARCH_SAMA5D4
+	default 0xfffff200
+	depends on ARCH_AT91
+	help
+	  Specify UART port base address on which barebox low-level
+	  debug messages should be output.
+
 config DEBUG_INITCALLS
 	bool "Trace initcalls"
 	help
 	  If enabled this will print initcall traces.
+
+
+config PBL_BREAK
+	bool "Execute software break on pbl start"
+	depends on ARM
+	help
+	  If this enabled, barebox will be compiled with BKPT instruction
+	  on early pbl init. This option should be used only with JTAG debugger!
 
 endmenu
 
@@ -1229,4 +1302,4 @@ config HAS_DEBUG_LL
 
 config DDR_SPD
 	bool
-	select CRC16
+	select CRC_ITU_T

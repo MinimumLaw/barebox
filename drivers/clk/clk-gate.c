@@ -20,16 +20,6 @@
 #include <linux/clk.h>
 #include <linux/err.h>
 
-struct clk_gate {
-	struct clk clk;
-	void __iomem *reg;
-	int shift;
-	const char *parent;
-	unsigned flags;
-};
-
-#define to_clk_gate(_clk) container_of(_clk, struct clk_gate, clk)
-
 static void clk_gate_endisable(struct clk *clk, int enable)
 {
 	struct clk_gate *gate = container_of(clk, struct clk_gate, clk);
@@ -66,7 +56,7 @@ static void clk_gate_disable(struct clk *clk)
 	clk_gate_endisable(clk, 0);
 }
 
-static int clk_gate_is_enabled(struct clk *clk)
+int clk_gate_is_enabled(struct clk *clk)
 {
 	struct clk_gate *g = container_of(clk, struct clk_gate, clk);
 	u32 val;
@@ -79,7 +69,7 @@ static int clk_gate_is_enabled(struct clk *clk)
 		return g->flags & CLK_GATE_INVERTED ? 1 : 0;
 }
 
-static struct clk_ops clk_gate_ops = {
+struct clk_ops clk_gate_ops = {
 	.set_rate = clk_parent_set_rate,
 	.round_rate = clk_parent_round_rate,
 	.enable = clk_gate_enable,

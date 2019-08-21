@@ -36,6 +36,8 @@ SECTIONS
 {
 	. = BASE;
 
+	.image_start : { *(.__image_start) }
+
 	PRE_IMAGE
 
 	. = ALIGN(4);
@@ -66,6 +68,13 @@ SECTIONS
 	. = ALIGN(4);
 	.data : { *(.data*) }
 
+	. = ALIGN(4);
+	__shasum_start = .;
+	.shasum : {
+		KEEP(*(.shasum))
+	}
+	__shasum_end = .;
+
 	.rel_dyn_start : { *(.__rel_dyn_start) }
 #ifdef CONFIG_CPU_32
 	.rel.dyn : { *(.rel*) }
@@ -78,11 +87,25 @@ SECTIONS
 	.dynsym : { *(.dynsym) }
 	.__dynsym_end : { *(.__dynsym_end) }
 
+	pbl_code_size =  . - BASE;
+
 	. = ALIGN(4);
 	.__bss_start :  { *(.__bss_start) }
 	.bss : { *(.bss*) }
 	.__bss_stop :  { *(.__bss_stop) }
 	_end = .;
+
+	pbl_memory_size =  . - BASE;
+
+#if defined(CONFIG_CPU_64) && defined(CONFIG_HABV4)
+	. = ALIGN(0x1000);
+	__csf_start = .;
+	.hab_csf : {
+		BYTE(0x5a);
+		. += + 0x1fff;
+	} = 0x5a
+	__csf_end = .;
+#endif /* CONFIG_CPU_64 && CONFIG_HABV4 */
 
 	. = ALIGN(4);
 	__piggydata_start = .;
@@ -91,9 +114,9 @@ SECTIONS
 	}
 	__piggydata_end = .;
 
-	. = ALIGN(4);
-	.image_end : { *(.__image_end_marker) }
-	__image_end = .;
+	.image_end : { *(.__image_end) }
+
+	pbl_image_size =  . - BASE;
 
 	_barebox_image_size = __image_end - BASE;
 	_barebox_pbl_size = __bss_start - BASE;

@@ -59,22 +59,22 @@ static inline struct device_d *imx53_add_fec(struct fec_platform_data *pdata)
 
 static inline struct device_d *imx53_add_mmc0(struct esdhc_platform_data *pdata)
 {
-	return imx_add_esdhc((void *)MX53_ESDHC1_BASE_ADDR, 0, pdata);
+	return imx_add_esdhc_imx5((void *)MX53_ESDHC1_BASE_ADDR, 0, pdata);
 }
 
 static inline struct device_d *imx53_add_mmc1(struct esdhc_platform_data *pdata)
 {
-	return imx_add_esdhc((void *)MX53_ESDHC2_BASE_ADDR, 1, pdata);
+	return imx_add_esdhc_imx5((void *)MX53_ESDHC2_BASE_ADDR, 1, pdata);
 }
 
 static inline struct device_d *imx53_add_mmc2(struct esdhc_platform_data *pdata)
 {
-	return imx_add_esdhc((void *)MX53_ESDHC3_BASE_ADDR, 2, pdata);
+	return imx_add_esdhc_imx5((void *)MX53_ESDHC3_BASE_ADDR, 2, pdata);
 }
 
 static inline struct device_d *imx53_add_mmc3(struct esdhc_platform_data *pdata)
 {
-	return imx_add_esdhc((void *)MX53_ESDHC4_BASE_ADDR, 3, pdata);
+	return imx_add_esdhc_imx5((void *)MX53_ESDHC4_BASE_ADDR, 3, pdata);
 }
 
 static inline struct device_d *imx53_add_nand(struct imx_nand_platform_data *pdata)
@@ -95,7 +95,7 @@ static inline struct device_d *imx53_add_nand(struct imx_nand_platform_data *pda
 	dev->resource = xzalloc(sizeof(struct resource) * ARRAY_SIZE(res));
 	memcpy(dev->resource, res, sizeof(struct resource) * ARRAY_SIZE(res));
 	dev->num_resources = ARRAY_SIZE(res);
-	strcpy(dev->name, "imx_nand");
+	dev_set_name(dev, "imx_nand");
 	dev->id = DEVICE_ID_DYNAMIC;
 	dev->platform_data = pdata;
 

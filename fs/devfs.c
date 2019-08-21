@@ -57,18 +57,18 @@ static int devfs_write(struct device_d *_dev, FILE *f, const void *buf, size_t s
 	return cdev_write(cdev, buf, size, f->pos, f->flags);
 }
 
-static loff_t devfs_lseek(struct device_d *_dev, FILE *f, loff_t pos)
+static int devfs_lseek(struct device_d *_dev, FILE *f, loff_t pos)
 {
 	struct cdev *cdev = f->priv;
-	loff_t ret = -1;
+	int ret;
 
-	if (cdev->ops->lseek)
+	if (cdev->ops->lseek) {
 		ret = cdev->ops->lseek(cdev, pos + cdev->offset);
+		if (ret < 0)
+			return ret;
+	}
 
-	if (ret != -1)
-		f->pos = pos;
-
-	return ret - cdev->offset;
+	return 0;
 }
 
 static int devfs_erase(struct device_d *_dev, FILE *f, loff_t count, loff_t offset)
@@ -78,13 +78,10 @@ static int devfs_erase(struct device_d *_dev, FILE *f, loff_t count, loff_t offs
 	if (cdev->flags & DEVFS_PARTITION_READONLY)
 		return -EPERM;
 
-	if (!cdev->ops->erase)
-		return -ENOSYS;
-
 	if (count + offset > cdev->size)
 		count = cdev->size - offset;
 
-	return cdev->ops->erase(cdev, count, offset + cdev->offset);
+	return cdev_erase(cdev, count, offset);
 }
 
 static int devfs_protect(struct device_d *_dev, FILE *f, size_t count, loff_t offset, int prot)
@@ -155,10 +152,7 @@ static int devfs_flush(struct device_d *_dev, FILE *f)
 {
 	struct cdev *cdev = f->priv;
 
-	if (cdev->ops->flush)
-		return cdev->ops->flush(cdev);
-
-	return 0;
+	return cdev_flush(cdev);
 }
 
 static int devfs_ioctl(struct device_d *_dev, FILE *f, int request, void *buf)
@@ -168,18 +162,14 @@ static int devfs_ioctl(struct device_d *_dev, FILE *f, int request, void *buf)
 	return cdev_ioctl(cdev, request, buf);
 }
 
-static int devfs_truncate(struct device_d *dev, FILE *f, ulong size)
+static int devfs_truncate(struct device_d *dev, FILE *f, loff_t size)
 {
 	struct cdev *cdev = f->priv;
 
 	if (cdev->ops->truncate)
 		return cdev->ops->truncate(cdev, size);
 
-	if (f->fsdev->dev.num_resources < 1)
-		return -ENOSPC;
-	if (size > resource_size(&f->fsdev->dev.resource[0]))
-		return -ENOSPC;
-	return 0;
+	return -EPERM;
 }
 
 static struct inode *devfs_alloc_inode(struct super_block *sb)
@@ -193,7 +183,7 @@ static struct inode *devfs_alloc_inode(struct super_block *sb)
 	return &node->inode;
 }
 
-int devfs_iterate(struct file *file, struct dir_context *ctx)
+static int devfs_iterate(struct file *file, struct dir_context *ctx)
 {
 	struct cdev *cdev;
 
@@ -211,6 +201,32 @@ static const struct inode_operations devfs_file_inode_operations;
 static const struct file_operations devfs_dir_operations;
 static const struct inode_operations devfs_dir_inode_operations;
 static const struct file_operations devfs_file_operations;
+
+static int devfs_lookup_revalidate(struct dentry *dentry, unsigned int flags)
+{
+	struct devfs_inode *dinode;
+	struct inode *inode;
+	struct cdev *cdev;
+
+	cdev = cdev_by_name(dentry->name);
+	if (!cdev)
+		return -ENOENT;
+
+	inode = d_inode(dentry);
+	if (!inode)
+		return 0;
+
+	dinode = container_of(inode, struct devfs_inode, inode);
+
+	if (dinode->cdev != cdev)
+		return 0;
+
+	return 1;
+}
+
+static const struct dentry_operations devfs_dentry_operations = {
+	.d_revalidate = devfs_lookup_revalidate,
+};
 
 static struct inode *devfs_get_inode(struct super_block *sb, const struct inode *dir,
                                      umode_t mode)
@@ -290,6 +306,7 @@ static int devfs_probe(struct device_d *dev)
 	struct super_block *sb = &fsdev->sb;
 
 	sb->s_op = &devfs_ops;
+	sb->s_d_op = &devfs_dentry_operations;
 
 	inode = devfs_get_inode(sb, NULL, S_IFDIR);
 	sb->s_root = d_make_root(inode);

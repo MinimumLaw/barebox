@@ -3,6 +3,7 @@ menu "serial drivers"
 
 config SERIAL_DEV_BUS
 	bool "Serial device bus"
+	select POLLER
 	depends on CONSOLE_FULL
 	help
 	  Core support for devices connected via a serial port.
@@ -35,6 +36,10 @@ config DRIVER_SERIAL_IMX
 	depends on ARCH_IMX
 	default y
 	bool "i.MX serial driver"
+
+config DRIVER_SERIAL_STM32
+	depends on ARCH_STM32MP
+	bool "stm32mp serial driver"
 
 config DRIVER_SERIAL_STM378X
 	depends on ARCH_MXS

@@ -64,6 +64,8 @@ struct atmel_nand_data {
 	u8		cle;		/* address line number connected to CLE */
 	u8		bus_width_16;	/* buswidth is 16 bit */
 	u8		ecc_mode;	/* NAND_ECC_* */
+	u8		ecc_strength;	/* number of bits to correct per ECC step */
+	u8		ecc_size_shift;	/* data bytes covered by a single ECC step.*/
 	u8		on_flash_bbt;	/* Use flash based bbt */
 	u8		has_pmecc;	/* Use PMECC */
 	u8		bus_on_d0;
@@ -100,15 +102,13 @@ resource_size_t __init at91_configure_usart2(unsigned pins);
 resource_size_t __init at91_configure_usart3(unsigned pins);
 resource_size_t __init at91_configure_usart4(unsigned pins);
 resource_size_t __init at91_configure_usart5(unsigned pins);
+resource_size_t __init at91_configure_usart6(unsigned pins);
 
 #if defined(CONFIG_DRIVER_SERIAL_ATMEL)
 static inline struct device_d * at91_register_uart(unsigned id, unsigned pins)
 {
 	resource_size_t start;
 	resource_size_t size = SZ_16K;
-
-	if (id >= AT91_NB_USART)
-		return NULL;
 
 	switch (id) {
 		case 0:		/* DBGU */
@@ -167,4 +167,10 @@ struct at91_spi_platform_data {
 void at91_add_device_spi(int spi_id, struct at91_spi_platform_data *pdata);
 
 void __init at91_add_device_lcdc(struct atmel_lcdfb_platform_data *data);
+
+void at91sam_phy_reset(void __iomem *rstc_base);
+
+void at91sam9_reset(void __iomem *sdram, void __iomem *rstc_cr);
+void at91sam9g45_reset(void __iomem *sdram, void __iomem *rstc_cr);
+
 #endif

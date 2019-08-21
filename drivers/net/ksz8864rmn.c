@@ -1,16 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2012 Jan Luebbe, Pengutronix
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  */
 
 #include <common.h>
@@ -123,7 +113,6 @@ static ssize_t micel_switch_write(struct cdev *cdev, const void *_buf, size_t co
 static struct cdev_operations micrel_switch_ops = {
 	.read  = micel_switch_read,
 	.write = micel_switch_write,
-	.lseek = dev_lseek_default,
 };
 
 static int micrel_switch_probe(struct device_d *dev)

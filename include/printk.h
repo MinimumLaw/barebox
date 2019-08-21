@@ -91,7 +91,7 @@ static inline int pr_print(int level, const char *format, ...)
 #define pr_debug(fmt, arg...)	__pr_printk(7, pr_fmt(fmt), ##arg)
 #define debug(fmt, arg...)	__pr_printk(7, pr_fmt(fmt), ##arg)
 #define pr_vdebug(fmt, arg...)	__pr_printk(8, pr_fmt(fmt), ##arg)
-#define pr_cont(fmt, arg...)	__pr_printk(0, fmt, ##arg)
+#define pr_cont(fmt, arg...)	__pr_printk(-1, fmt, ##arg)
 
 #define printk_once(fmt, ...)					\
 ({								\
@@ -102,6 +102,25 @@ static inline int pr_print(int level, const char *format, ...)
 		printk(fmt, ##__VA_ARGS__);			\
 	}							\
 })
+
+int memory_display(const void *addr, loff_t offs, unsigned nbytes, int size,
+		   int swab);
+int __pr_memory_display(int level, const void *addr, loff_t offs, unsigned nbytes,
+			int size, int swab, const char *format, ...);
+
+#define pr_memory_display(level, addr, offs, nbytes, size, swab) \
+	({	\
+		(level) <= LOGLEVEL ? __pr_memory_display((level), (addr), \
+				(offs), (nbytes), (size), (swab), pr_fmt("")) : 0; \
+	 })
+
+#define DUMP_PREFIX_OFFSET 0
+static inline void print_hex_dump(const char *level, const char *prefix_str,
+		int prefix_type, int rowsize, int groupsize,
+		const void *buf, size_t len, bool ascii)
+{
+	memory_display(buf, 0, len, groupsize, 0);
+}
 
 struct log_entry {
 	struct list_head list;
@@ -115,10 +134,21 @@ extern struct list_head barebox_logbuf;
 
 extern void log_clean(unsigned int limit);
 
-#define BAREBOX_LOG_PRINT_TIME	(1 << 0)
-#define BAREBOX_LOG_DIFF_TIME	(1 << 1)
+#define BAREBOX_LOG_PRINT_RAW		BIT(2)
+#define BAREBOX_LOG_DIFF_TIME		BIT(1)
+#define BAREBOX_LOG_PRINT_TIME		BIT(0)
 
-void log_print(unsigned flags);
+#define BAREBOX_LOG_PRINT_VDEBUG	BIT(8)
+#define BAREBOX_LOG_PRINT_DEBUG		BIT(7)
+#define BAREBOX_LOG_PRINT_INFO		BIT(6)
+#define BAREBOX_LOG_PRINT_NOTICE	BIT(5)
+#define BAREBOX_LOG_PRINT_WARNING	BIT(4)
+#define BAREBOX_LOG_PRINT_ERR		BIT(3)
+#define BAREBOX_LOG_PRINT_CRIT		BIT(2)
+#define BAREBOX_LOG_PRINT_ALERT		BIT(1)
+#define BAREBOX_LOG_PRINT_EMERG		BIT(0)
+
+void log_print(unsigned flags, unsigned levels);
 
 struct va_format {
 	const char *fmt;

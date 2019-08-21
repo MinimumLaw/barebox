@@ -19,6 +19,7 @@
 
 #include <common.h>
 #include <dma-dir.h>
+#include <dma.h>
 #include <init.h>
 #include <mmu.h>
 #include <errno.h>
@@ -33,7 +34,6 @@
 
 #include "mmu.h"
 
-#define PMD_SECT_DEF_CACHED (PMD_SECT_WB | PMD_SECT_DEF_UNCACHED)
 #define PTRS_PER_PTE		(PGDIR_SIZE / PAGE_SIZE)
 #define ARCH_MAP_WRITECOMBINE	((unsigned)-1)
 
@@ -57,11 +57,13 @@ static inline void tlb_invalidate(void)
 }
 
 #define PTE_FLAGS_CACHED_V7 (PTE_EXT_TEX(1) | PTE_BUFFERABLE | PTE_CACHEABLE)
-#define PTE_FLAGS_WC_V7 PTE_EXT_TEX(1)
-#define PTE_FLAGS_UNCACHED_V7 (0)
+#define PTE_FLAGS_WC_V7 (PTE_EXT_TEX(1) | PTE_EXT_XN)
+#define PTE_FLAGS_UNCACHED_V7 PTE_EXT_XN
 #define PTE_FLAGS_CACHED_V4 (PTE_SMALL_AP_UNO_SRW | PTE_BUFFERABLE | PTE_CACHEABLE)
 #define PTE_FLAGS_UNCACHED_V4 PTE_SMALL_AP_UNO_SRW
-#define PGD_FLAGS_WC_V7 (PMD_SECT_TEX(1) | PMD_TYPE_SECT | PMD_SECT_BUFFERABLE)
+#define PGD_FLAGS_WC_V7 (PMD_SECT_TEX(1) | PMD_TYPE_SECT | PMD_SECT_BUFFERABLE | \
+			 PMD_SECT_XN)
+#define PGD_FLAGS_UNCACHED_V7 (PMD_SECT_DEF_UNCACHED | PMD_SECT_XN)
 
 /*
  * PTE flags to set cached and uncached areas.
@@ -71,19 +73,9 @@ static uint32_t pte_flags_cached;
 static uint32_t pte_flags_wc;
 static uint32_t pte_flags_uncached;
 static uint32_t pgd_flags_wc;
+static uint32_t pgd_flags_uncached;
 
 #define PTE_MASK ((1 << 12) - 1)
-
-static void arm_mmu_not_initialized_error(void)
-{
-	/*
-	 * This means:
-	 * - one of the MMU functions like dma_alloc_coherent
-	 *   or remap_range is called too early, before the MMU is initialized
-	 * - Or the MMU initialization has failed earlier
-	 */
-	panic("MMU not initialized\n");
-}
 
 static bool pgd_type_table(u32 pgd)
 {
@@ -107,7 +99,7 @@ static u32 *find_pte(unsigned long adr)
 	return &table[(adr >> PAGE_SHIFT) & 0xff];
 }
 
-static void dma_flush_range(void *ptr, size_t size)
+void dma_flush_range(void *ptr, size_t size)
 {
 	unsigned long start = (unsigned long)ptr;
 	unsigned long end = start + size;
@@ -117,8 +109,11 @@ static void dma_flush_range(void *ptr, size_t size)
 		outer_cache.flush_range(start, end);
 }
 
-static void dma_inv_range(unsigned long start, unsigned long end)
+void dma_inv_range(void *ptr, size_t size)
 {
+	unsigned long start = (unsigned long)ptr;
+	unsigned long end = start + size;
+
 	if (outer_cache.inv_range)
 		outer_cache.inv_range(start, end);
 	__dma_inv_range(start, end);
@@ -171,7 +166,7 @@ int arch_remap_range(void *start, size_t size, unsigned flags)
 		break;
 	case MAP_UNCACHED:
 		pte_flags = pte_flags_uncached;
-		pgd_flags = PMD_SECT_DEF_UNCACHED;
+		pgd_flags = pgd_flags_uncached;
 		break;
 	case ARCH_MAP_WRITECOMBINE:
 		pte_flags = pte_flags_wc;
@@ -254,7 +249,7 @@ void *map_io_sections(unsigned long phys, void *_start, size_t size)
 	unsigned long start = (unsigned long)_start, sec;
 
 	for (sec = start; sec < start + size; sec += PGDIR_SIZE, phys += PGDIR_SIZE)
-		ttb[pgd_index(sec)] = phys | PMD_SECT_DEF_UNCACHED;
+		ttb[pgd_index(sec)] = phys | pgd_flags_uncached;
 
 	dma_flush_range(ttb, 0x4000);
 	tlb_invalidate();
@@ -408,18 +403,9 @@ static void vectors_init(void)
 /*
  * Prepare MMU for usage enable it.
  */
-static int mmu_init(void)
+void __mmu_init(bool mmu_on)
 {
 	struct memory_bank *bank;
-
-	if (list_empty(&memory_banks))
-		/*
-		 * If you see this it means you have no memory registered.
-		 * This can be done either with arm_add_mem_device() in an
-		 * initcall prior to mmu_initcall or via devicetree in the
-		 * memory node.
-		 */
-		panic("MMU: No memory bank found! Cannot continue\n");
 
 	arm_set_cache_functions();
 
@@ -427,15 +413,17 @@ static int mmu_init(void)
 		pte_flags_cached = PTE_FLAGS_CACHED_V7;
 		pte_flags_wc = PTE_FLAGS_WC_V7;
 		pgd_flags_wc = PGD_FLAGS_WC_V7;
+		pgd_flags_uncached = PGD_FLAGS_UNCACHED_V7;
 		pte_flags_uncached = PTE_FLAGS_UNCACHED_V7;
 	} else {
 		pte_flags_cached = PTE_FLAGS_CACHED_V4;
 		pte_flags_wc = PTE_FLAGS_UNCACHED_V4;
 		pgd_flags_wc = PMD_SECT_DEF_UNCACHED;
+		pgd_flags_uncached = PMD_SECT_DEF_UNCACHED;
 		pte_flags_uncached = PTE_FLAGS_UNCACHED_V4;
 	}
 
-	if (get_cr() & CR_M) {
+	if (mmu_on) {
 		/*
 		 * Early MMU code has already enabled the MMU. We assume a
 		 * flat 1:1 section mapping in this case.
@@ -479,10 +467,7 @@ static int mmu_init(void)
 	}
 
 	__mmu_cache_on();
-
-	return 0;
 }
-mmu_initcall(mmu_init);
 
 /*
  * Clean and invalide caches, disable MMU
@@ -497,55 +482,9 @@ void mmu_disable(void)
 	__mmu_cache_off();
 }
 
-static void *dma_alloc(size_t size, dma_addr_t *dma_handle, unsigned flags)
-{
-	void *ret;
-
-	size = PAGE_ALIGN(size);
-	ret = xmemalign(PAGE_SIZE, size);
-	if (dma_handle)
-		*dma_handle = (dma_addr_t)ret;
-
-	dma_inv_range((unsigned long)ret, (unsigned long)ret + size);
-
-	arch_remap_range(ret, size, flags);
-
-	return ret;
-}
-
-void *dma_alloc_coherent(size_t size, dma_addr_t *dma_handle)
-{
-	return dma_alloc(size, dma_handle, MAP_UNCACHED);
-}
-
 void *dma_alloc_writecombine(size_t size, dma_addr_t *dma_handle)
 {
-	return dma_alloc(size, dma_handle, ARCH_MAP_WRITECOMBINE);
-}
-
-unsigned long virt_to_phys(volatile void *virt)
-{
-	return (unsigned long)virt;
-}
-
-void *phys_to_virt(unsigned long phys)
-{
-	return (void *)phys;
-}
-
-void dma_free_coherent(void *mem, dma_addr_t dma_handle, size_t size)
-{
-	size = PAGE_ALIGN(size);
-	arch_remap_range(mem, size, MAP_CACHED);
-
-	free(mem);
-}
-
-void dma_sync_single_for_cpu(dma_addr_t address, size_t size,
-			     enum dma_data_direction dir)
-{
-	if (dir != DMA_TO_DEVICE)
-		dma_inv_range(address, address + size);
+	return dma_alloc_map(size, dma_handle, ARCH_MAP_WRITECOMBINE);
 }
 
 void dma_sync_single_for_device(dma_addr_t address, size_t size,
@@ -560,20 +499,4 @@ void dma_sync_single_for_device(dma_addr_t address, size_t size,
 		if (outer_cache.clean_range)
 			outer_cache.clean_range(address, address + size);
 	}
-}
-
-dma_addr_t dma_map_single(struct device_d *dev, void *ptr, size_t size,
-			  enum dma_data_direction dir)
-{
-	unsigned long addr = (unsigned long)ptr;
-
-	dma_sync_single_for_device(addr, size, dir);
-
-	return addr;
-}
-
-void dma_unmap_single(struct device_d *dev, dma_addr_t addr, size_t size,
-		      enum dma_data_direction dir)
-{
-	dma_sync_single_for_cpu(addr, size, dir);
 }

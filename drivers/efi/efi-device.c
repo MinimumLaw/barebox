@@ -32,7 +32,7 @@
 #include <efi/efi-device.h>
 #include <linux/err.h>
 
-int efi_locate_handle(enum efi_locate_search_type search_type,
+static int efi_locate_handle(enum efi_locate_search_type search_type,
 		efi_guid_t *protocol,
 		void *search_key,
 		unsigned long *no_handles,
@@ -185,7 +185,7 @@ static struct efi_device *efi_add_device(efi_handle_t *handle, efi_guid_t **guid
 	efidev->dev.info = efi_devinfo;
 	efidev->devpath = devpath;
 
-	sprintf(efidev->dev.name, "handle-%p", handle);
+	dev_set_name(&efidev->dev, "handle-%p", handle);
 
 	efidev->parent_handle = efi_find_parent(efidev->handle);
 
@@ -551,7 +551,7 @@ static int do_efi_protocol_dump(int argc, char **argv)
 
 		if (len != 36)
 			return -EINVAL;
-		
+
 		read_xbit(s, a, 32);
 		if (*s != '-')
 			return -EINVAL;

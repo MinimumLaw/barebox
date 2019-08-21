@@ -164,6 +164,9 @@ static int rockchip_rk3066_pll_set_rate(struct clk *hw, unsigned long drate,
 	int cur_parent;
 	int ret;
 
+	if (old_rate == drate)
+		return 0;
+
 	pr_debug("%s: changing %s from %lu to %lu with a parent rate of %lu\n",
 		 __func__, __clk_get_name(hw), old_rate, drate, prate);
 
@@ -349,7 +352,8 @@ struct clk *rockchip_clk_register_pll(enum rockchip_pll_type pll_type,
 	pll_parents[1] = pll->pll_name;
 	pll_parents[2] = parent_names[1];
 
-	pll_mux = clk_mux_alloc(name, base + mode_offset, mode_shift, PLL_MODE_MASK, pll_parents, 3, CLK_SET_RATE_PARENT);
+	pll_mux = clk_mux_alloc(name, CLK_SET_RATE_PARENT, base + mode_offset, mode_shift,
+				PLL_MODE_MASK, pll_parents, 3, 0);
 	pll->pll_mux_ops = pll_mux->ops;
 	mux_clk = pll_mux;
 

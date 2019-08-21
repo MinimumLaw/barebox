@@ -16,7 +16,6 @@
 #include <common.h>
 #include <driver.h>
 #include <restart.h>
-#include <init.h>
 #include <i2c/i2c.h>
 #include <malloc.h>
 #include <notifier.h>
@@ -202,7 +201,7 @@ static int da9062_device_init(struct da9063 *priv)
 
 	priv->client1 = i2c_new_dummy(priv->client->adapter,
 				      priv->client->addr + 1);
-	if (!priv) {
+	if (!priv->client1) {
 		dev_warn(priv->dev, "failed to create bank 1 device\n");
 		/* TODO: return -EINVAL; i2c api does not return more
 		 * details */
@@ -297,10 +296,4 @@ static struct driver_d da9063_driver = {
 	.id_table = da9063_id,
 	.of_compatible  = DRV_OF_COMPAT(da906x_dt_ids),
 };
-
-static int da9063_init(void)
-{
-	return i2c_driver_register(&da9063_driver);
-}
-
-device_initcall(da9063_init);
+device_i2c_driver(da9063_driver);

@@ -1,17 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * (C) Copyright 2007 Pengutronix, Sascha Hauer <s.hauer@pengutronix.de>
  * (C) Copyright 2007 Pengutronix, Juergen Beisert <j.beisert@pengutronix.de>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  */
 
 #include <common.h>
@@ -29,6 +19,7 @@
 #include <linux/err.h>
 #include <of_net.h>
 #include <of_gpio.h>
+#include <regulator.h>
 #include <gpio.h>
 #include <linux/iopoll.h>
 
@@ -61,7 +52,7 @@ static int fec_miibus_read(struct mii_bus *bus, int phyAddr, int regAddr)
 	 * wait for the related interrupt
 	 */
 	if (readl_poll_timeout(fec->regs + FEC_IEVENT, reg,
-			       reg & FEC_IEVENT_MII, MSECOND)) {
+			       reg & FEC_IEVENT_MII, USEC_PER_MSEC)) {
 		dev_err(&fec->edev.dev, "Read MDIO failed...\n");
 		return -1;
 	}
@@ -98,7 +89,7 @@ static int fec_miibus_write(struct mii_bus *bus, int phyAddr,
 	 * wait for the MII interrupt
 	 */
 	if (readl_poll_timeout(fec->regs + FEC_IEVENT, reg,
-			       reg & FEC_IEVENT_MII, MSECOND)) {
+			       reg & FEC_IEVENT_MII, USEC_PER_MSEC)) {
 		dev_err(&fec->edev.dev, "Write MDIO failed...\n");
 		return -1;
 	}
@@ -405,13 +396,20 @@ static void fec_halt(struct eth_device *dev)
 	struct fec_priv *fec = (struct fec_priv *)dev->priv;
 	uint32_t reg;
 
+	/*
+	 * Only halt if fec has been started. Otherwise we would have to wait
+	 * for the timeout below.
+	 */
+	if (!(readl(fec->regs + FEC_ECNTRL) & FEC_ECNTRL_ETHER_EN))
+		return;
+
 	/* issue graceful stop command to the FEC transmitter if necessary */
 	writel(readl(fec->regs + FEC_X_CNTRL) | FEC_ECNTRL_RESET,
 			fec->regs + FEC_X_CNTRL);
 
 	/* wait for graceful stop to register */
 	if (readl_poll_timeout(fec->regs + FEC_IEVENT, reg,
-			       reg & FEC_IEVENT_GRA, SECOND))
+			       reg & FEC_IEVENT_GRA, USEC_PER_SEC))
 		dev_err(&dev->dev, "graceful stop timeout\n");
 
 	/* Disable SmartDMA tasks */
@@ -485,7 +483,7 @@ static int fec_send(struct eth_device *dev, void *eth_data, int data_length)
 	fec_tx_task_enable(fec);
 
 	if (readw_poll_timeout(&fec->tbd_base[fec->tbd_index].status,
-			       status, !(status & FEC_TBD_READY), SECOND))
+			       status, !(status & FEC_TBD_READY), USEC_PER_SEC))
 		dev_err(&dev->dev, "transmission timeout\n");
 
 	dma_unmap_single(fec->dev, dma, data_length, DMA_TO_DEVICE);
@@ -779,6 +777,21 @@ static int fec_probe(struct device_d *dev)
 	}
 	fec->regs = IOMEM(iores->start);
 
+	fec->reg_phy = regulator_get(dev, "phy");
+	if (IS_ERR(fec->reg_phy)) {
+		if (PTR_ERR(fec->reg_phy) == -EPROBE_DEFER) {
+			ret = -EPROBE_DEFER;
+			goto disable_clk;
+		}
+		fec->reg_phy = NULL;
+	}
+
+	ret = regulator_enable(fec->reg_phy);
+	if (ret) {
+		dev_err(dev, "Failed to enable phy regulator: %d\n", ret);
+		goto disable_clk;
+	}
+
 	phy_reset = of_get_named_gpio(dev->device_node, "phy-reset-gpios", 0);
 	if (gpio_is_valid(phy_reset)) {
 		of_property_read_u32(dev->device_node, "phy-reset-duration", &msec);
@@ -806,7 +819,7 @@ static int fec_probe(struct device_d *dev)
 	/* Reset chip. */
 	writel(FEC_ECNTRL_RESET, fec->regs + FEC_ECNTRL);
 	ret = readl_poll_timeout(fec->regs + FEC_ECNTRL, reg,
-				 !(reg & FEC_ECNTRL_RESET), SECOND);
+				 !(reg & FEC_ECNTRL_RESET), USEC_PER_SEC);
 	if (ret)
 		goto free_gpio;
 
@@ -871,6 +884,9 @@ free_gpio:
 	if (gpio_is_valid(phy_reset))
 		gpio_free(phy_reset);
 release_res:
+	if (fec->reg_phy)
+		regulator_disable(fec->reg_phy);
+
 	release_region(iores);
 disable_clk:
 	fec_clk_disable(fec);

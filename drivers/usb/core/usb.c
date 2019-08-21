@@ -63,7 +63,6 @@
 
 static int dev_count;
 static int dev_index;
-static int asynch_allowed;
 
 static LIST_HEAD(host_list);
 LIST_HEAD(usb_device_list);
@@ -98,8 +97,12 @@ int usb_register_host(struct usb_host *host)
 	list_add_tail(&host->list, &host_list);
 	host->busnum = host_busnum++;
 	host->sem = 0;
-	asynch_allowed = 1;
 	return 0;
+}
+
+void usb_unregister_host(struct usb_host *host)
+{
+	list_del(&host->list);
 }
 
 /**
@@ -431,9 +434,10 @@ int usb_new_device(struct usb_device *dev)
 			   dev->serial, sizeof(dev->serial));
 
 	if (parent) {
-		sprintf(dev->dev.name, "%s-%d", parent->dev.name, dev->portnr - 1);
+		dev_set_name(&dev->dev, "%s-%d", parent->dev.name,
+			     dev->portnr - 1);
 	} else {
-		sprintf(dev->dev.name, "usb%d", dev->host->busnum);
+		dev_set_name(&dev->dev, "usb%d", dev->host->busnum);
 	}
 
 	dev->dev.id = DEVICE_ID_SINGLE;
@@ -553,16 +557,6 @@ void usb_rescan(void)
 	pr_info("%d USB Device(s) found\n", dev_count);
 }
 
-/*
- * disables the asynch behaviour of the control message. This is used for data
- * transfers that uses the exclusiv access to the control and bulk messages.
- */
-void usb_disable_asynch(int disable)
-{
-	asynch_allowed = !disable;
-}
-
-
 /*-------------------------------------------------------------------
  * Message wrappers.
  *
@@ -591,10 +585,9 @@ int usb_submit_int_msg(struct usb_device *dev, unsigned long pipe,
 /*
  * submits a control message and waits for completion (at least timeout * 1ms)
  * If timeout is 0, we don't wait for completion (used as example to set and
- * clear keyboards LEDs). For data transfers, (storage transfers) we don't
- * allow control messages with 0 timeout, by previously resetting the flag
- * asynch_allowed (usb_disable_asynch(1)).
- * returns the transfered length if OK or -1 if error. The transfered length
+ * clear keyboards LEDs).
+ *
+ * Returns the transfered length if OK or -1 if error. The transfered length
  * and the current status are stored in the dev->act_len and dev->status.
  */
 int usb_control_msg(struct usb_device *dev, unsigned int pipe,
@@ -605,11 +598,6 @@ int usb_control_msg(struct usb_device *dev, unsigned int pipe,
 	struct usb_host *host = dev->host;
 	int ret;
 	struct devrequest *setup_packet = dev->setup_packet;
-
-	if ((timeout == 0) && (!asynch_allowed)) {
-		/* request for a asynch control pipe is not allowed */
-		return -1;
-	}
 
 	ret = usb_host_acquire(host);
 	if (ret)

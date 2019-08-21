@@ -45,7 +45,11 @@ static inline int gpio_direction_active(unsigned gpio, int value)
 }
 #endif
 
+#if defined(CONFIG_ARCH_NR_GPIO) && CONFIG_ARCH_NR_GPIO > 0
+#define ARCH_NR_GPIOS CONFIG_ARCH_NR_GPIO
+#else
 #define ARCH_NR_GPIOS 256
+#endif
 
 static inline int gpio_is_valid(int gpio)
 {
@@ -92,6 +96,11 @@ static inline int gpio_request(unsigned gpio, const char *label)
 	return 0;
 }
 
+static inline int gpio_find_by_label(const char *label)
+{
+	return -ENOSYS;
+}
+
 static inline void gpio_free(unsigned gpio)
 {
 }
@@ -114,6 +123,7 @@ static inline void gpio_free_array(const struct gpio *array, size_t num)
 }
 #else
 int gpio_request(unsigned gpio, const char *label);
+int gpio_find_by_label(const char *label);
 void gpio_free(unsigned gpio);
 int gpio_request_one(unsigned gpio, unsigned long flags, const char *label);
 int gpio_request_array(const struct gpio *array, size_t num);
@@ -147,5 +157,6 @@ int gpiochip_add(struct gpio_chip *chip);
 void gpiochip_remove(struct gpio_chip *chip);
 
 int gpio_get_num(struct device_d *dev, int gpio);
+struct gpio_chip *gpio_get_chip(int gpio);
 
 #endif /* __GPIO_H */

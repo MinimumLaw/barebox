@@ -16,14 +16,11 @@
 #include <asm/system.h>
 #include <init.h>
 #include <globalvar.h>
-#include <asm/arm-smccc.h>
+#include <linux/arm-smccc.h>
 #include <asm-generic/sections.h>
 #include <asm/secure.h>
 
 #include "mmu.h"
-
-/* valid bits in CBAR register / PERIPHBASE value */
-#define CBAR_MASK			0xFFFF8000
 
 static unsigned int read_id_pfr1(void)
 {
@@ -51,30 +48,6 @@ static void write_mvbar(u32 val)
 	asm("mcr p15, 0, %0, c12, c0, 1" : : "r"(val));
 }
 
-static unsigned long get_cbar(void)
-{
-	unsigned periphbase;
-
-	/* get the GIC base address from the CBAR register */
-	asm("mrc p15, 4, %0, c15, c0, 0\n" : "=r" (periphbase));
-
-	/* the PERIPHBASE can be mapped above 4 GB (lower 8 bits used to
-	 * encode this). Bail out here since we cannot access this without
-	 * enabling paging.
-	 */
-	if ((periphbase & 0xff) != 0) {
-		pr_err("PERIPHBASE is above 4 GB, no access.\n");
-		return -1;
-	}
-
-	return periphbase & CBAR_MASK;
-}
-
-static unsigned long get_gicd_base_address(void)
-{
-	return get_cbar() + GIC_DIST_OFFSET;
-}
-
 static int cpu_is_virt_capable(void)
 {
 	return read_id_pfr1() & (1 << 12);
@@ -94,7 +67,7 @@ static unsigned long get_gicc_base_address(void)
 
 #define GICD_IGROUPRn             0x0080
 
-int armv7_init_nonsec(void)
+static int armv7_init_nonsec(void)
 {
 	void __iomem *gicd = IOMEM(get_gicd_base_address());
 	unsigned itlinesnr, i;
@@ -184,6 +157,9 @@ int armv7_secure_monitor_install(void)
 		return -EINVAL;
 	}
 
+	if (boot_cpu_mode() == HYP_MODE)
+		return 0;
+
 	mmuon = get_cr() & CR_M;
 
 	vbar = get_vbar();
@@ -258,6 +234,9 @@ static int sm_init(void)
 				  (unsigned int *)&bootm_secure_state,
 				  bootm_secure_state_names,
 				  ARRAY_SIZE(bootm_secure_state_names));
+
+	if (boot_cpu_mode() == HYP_MODE)
+		bootm_secure_state = ARM_STATE_HYP;
 
 	return 0;
 }

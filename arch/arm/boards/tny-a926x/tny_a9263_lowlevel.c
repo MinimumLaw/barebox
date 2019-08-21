@@ -33,8 +33,8 @@ static void __bare_init tny_a9263_board_config(struct at91sam926x_board_cfg *cfg
 	cfg->ebi_pio_ppudr = 0xFFFF0000;
 	/* EBI0_CSA, CS1 SDRAM, CS3 NAND Flash, 3.3V memories */
 	cfg->ebi_csa =
-		AT91_MATRIX_EBI0_DBPUC | AT91_MATRIX_EBI0_VDDIOMSEL_3_3V |
-		AT91_MATRIX_EBI0_CS1A_SDRAMC;
+		AT91SAM9263_MATRIX_EBI0_DBPUC | AT91SAM9263_MATRIX_EBI0_VDDIOMSEL_3_3V |
+		AT91SAM9263_MATRIX_EBI0_CS1A_SDRAMC;
 
 	cfg->smc_cs = 3;
 	cfg->smc_mode =
@@ -107,18 +107,18 @@ static void __bare_init tny_a9263_init(void)
 	cfg.pio = IOMEM(AT91SAM9263_BASE_PIOD);
 	cfg.sdramc = IOMEM(AT91SAM9263_BASE_SDRAMC0);
 	cfg.ebi_pio_is_peripha = true;
-	cfg.matrix_csa = AT91_MATRIX_EBI0CSA;
+	cfg.matrix_csa = IOMEM(AT91SAM9263_BASE_MATRIX + AT91SAM9263_MATRIX_EBI0CSA);
 
         tny_a9263_board_config(&cfg);
 
-	at91sam926x_board_init(&cfg);
+	at91sam9263_board_init(&cfg);
 
 	barebox_arm_entry(AT91_CHIPSELECT_1,
 			  at91_get_sdram_size(IOMEM(AT91SAM9263_BASE_SDRAMC0)),
 	                  NULL);
 }
 
-void __naked __bare_init barebox_arm_reset_vector(void)
+void __naked __bare_init barebox_arm_reset_vector(uint32_t r0, uint32_t r1, uint32_t r2)
 {
 	arm_cpu_lowlevel_init();
 

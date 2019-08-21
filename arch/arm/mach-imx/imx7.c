@@ -26,6 +26,7 @@ void imx7_init_lowlevel(void)
 {
 	void __iomem *aips1 = IOMEM(MX7_AIPS1_CONFIG_BASE_ADDR);
 	void __iomem *aips2 = IOMEM(MX7_AIPS2_CONFIG_BASE_ADDR);
+	void __iomem *aips3 = IOMEM(MX7_AIPS3_CONFIG_BASE_ADDR);
 
 	/*
 	 * Set all MPROTx to be non-bufferable, trusted for R/W,
@@ -46,39 +47,14 @@ void imx7_init_lowlevel(void)
 	writel(0, aips2 + 0x48);
 	writel(0, aips2 + 0x4c);
 	writel(0, aips2 + 0x50);
-}
 
-#define SC_CNTCR	0x0
-#define SC_CNTSR	0x4
-#define SC_CNTCV1	0x8
-#define SC_CNTCV2	0xc
-#define SC_CNTFID0	0x20
-#define SC_CNTFID1	0x24
-#define SC_CNTFID2	0x28
-#define SC_counterid	0xfcc
-
-#define SC_CNTCR_ENABLE         (1 << 0)
-#define SC_CNTCR_HDBG           (1 << 1)
-#define SC_CNTCR_FREQ0          (1 << 8)
-#define SC_CNTCR_FREQ1          (1 << 9)
-
-static int imx7_timer_init(void)
-{
-	void __iomem *sctr = IOMEM(MX7_SYSCNT_CTRL_BASE_ADDR);
-	unsigned long val, freq;
-
-	freq = 8000000;
-	asm("mcr p15, 0, %0, c14, c0, 0" : : "r" (freq));
-
-	writel(freq, sctr + SC_CNTFID0);
-
-	/* Enable system counter */
-	val = readl(sctr + SC_CNTCR);
-	val &= ~(SC_CNTCR_FREQ0 | SC_CNTCR_FREQ1);
-	val |= SC_CNTCR_FREQ0 | SC_CNTCR_ENABLE | SC_CNTCR_HDBG;
-	writel(val, sctr + SC_CNTCR);
-
-	return 0;
+	writel(0x77777777, aips3);
+	writel(0x77777777, aips3 + 0x4);
+	writel(0, aips3 + 0x40);
+	writel(0, aips3 + 0x44);
+	writel(0, aips3 + 0x48);
+	writel(0, aips3 + 0x4c);
+	writel(0, aips3 + 0x50);
 }
 
 #define CSU_NUM_REGS               64
@@ -176,8 +152,6 @@ int imx7_init(void)
 	imx7_init_lowlevel();
 
 	imx7_init_csu();
-
-	imx7_timer_init();
 
 	imx7_boot_save_loc();
 

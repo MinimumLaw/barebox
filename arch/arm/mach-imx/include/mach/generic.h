@@ -19,6 +19,7 @@ void vf610_boot_save_loc(void);
 void imx8_boot_save_loc(void);
 
 void imx25_get_boot_source(enum bootsource *src, int *instance);
+void imx27_get_boot_source(enum bootsource *src, int *instance);
 void imx35_get_boot_source(enum bootsource *src, int *instance);
 void imx51_get_boot_source(enum bootsource *src, int *instance);
 void imx53_get_boot_source(enum bootsource *src, int *instance);
@@ -57,6 +58,7 @@ void imx6_cpu_lowlevel_init(void);
 void imx6ul_cpu_lowlevel_init(void);
 void imx7_cpu_lowlevel_init(void);
 void vf610_cpu_lowlevel_init(void);
+void imx8mq_cpu_lowlevel_init(void);
 
 /* There's a off-by-one betweem the gpio bank number and the gpiochip */
 /* range e.g. GPIO_1_5 is gpio 5 under linux */

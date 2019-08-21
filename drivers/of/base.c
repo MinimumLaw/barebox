@@ -1235,7 +1235,7 @@ int of_property_write_u64_array(struct device_node *np,
  *
  * @np:		device node to which the property value is to be written.
  * @propname:	name of the property to be written.
- * value:	pointer to the string to write
+ * @value:	pointer to the string to write
  *
  * Search for a property in a device node and write a string to
  * it. If the property does not exist, it will be created and appended to
@@ -1979,7 +1979,7 @@ const struct of_device_id of_default_bus_match_table[] = {
 
 int of_probe(void)
 {
-	struct device_node *memory;
+	struct device_node *memory, *firmware;
 
 	if(!root_node)
 		return -ENODEV;
@@ -1995,6 +1995,10 @@ int of_probe(void)
 		memory = of_find_node_by_type(root_node, "memory");
 	if (memory)
 		of_add_memory(memory, false);
+
+	firmware = of_find_node_by_path("/firmware");
+	if (firmware)
+		of_platform_populate(firmware, NULL, NULL);
 
 	of_clk_init(root_node, NULL);
 	of_platform_populate(root_node, of_default_bus_match_table, NULL);
@@ -2275,6 +2279,18 @@ char *of_get_reproducible_name(struct device_node *node)
 	}
 
 	na = of_n_addr_cells(node);
+
+	/*
+	 * Special workaround for the of partition binding. In the old binding
+	 * the partitions are directly under the hardware devicenode whereas in
+	 * the new binding the partitions are in an extra subnode with
+	 * "fixed-partitions" compatible. We skip this extra subnode from the
+	 * reproducible name to get the same name for both bindings.
+	 */
+	if (node->parent &&
+	    of_device_is_compatible(node->parent, "fixed-partitions")) {
+		node = node->parent;
+	}
 
 	offset = of_read_number(reg, na);
 

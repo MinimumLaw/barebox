@@ -9,7 +9,8 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <fcntl.h>
-#include <endian.h>
+
+#include "compiler.h"
 
 int main(int argc, char**argv)
 {
@@ -68,11 +69,12 @@ int main(int argc, char**argv)
 	}
 
 	if (strcmp(magic, "barebox")) {
-		fprintf(stderr, "invalid magic\n");
-		if (ignore_unknown)
+		if (ignore_unknown) {
 			ret = 0;
-		else
+		} else {
+			fprintf(stderr, "invalid magic\n");
 			ret = 1;
+		}
 		goto err;
 	}
 

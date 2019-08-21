@@ -36,8 +36,6 @@
 
 #include <globalvar.h>
 
-#include <linux/micrel_phy.h>
-
 #include <mach/iomux-mx6.h>
 #include <mach/imx6.h>
 
@@ -97,10 +95,19 @@ static unsigned int get_module_rev(void)
 	return 16 - val;
 }
 
-int ksz8081_phy_fixup(struct phy_device *phydev)
+static int ksz8081_phy_fixup(struct phy_device *phydev)
 {
+	/*
+	 * 0x8100 default
+	 * 0x0080 RMII 50 MHz clock mode
+	 * 0x0010 LED Mode 1
+	 */
 	phy_write(phydev, 0x1f, 0x8190);
-	phy_write(phydev, 0x16, 0x202);
+	/*
+	 * 0x0002 Override strap-in for RMII mode
+	 * This should be default but after reset we occasionally read 0x0001
+	 */
+	phy_write(phydev, 0x16, 0x2);
 
 	return 0;
 }
@@ -183,7 +190,8 @@ static int physom_imx6_devices_init(void)
 		default_environment_path = "/chosen/environment-spinor";
 		default_envdev = "SPI NOR flash";
 
-	} else if (of_machine_is_compatible("phytec,imx6ul-pcl063")) {
+	} else if (of_machine_is_compatible("phytec,imx6ul-pcl063-nand")
+		|| of_machine_is_compatible("phytec,imx6ul-pcl063-emmc")) {
 		barebox_set_hostname("phyCORE-i.MX6UL");
 		default_environment_path = "/chosen/environment-nand";
 		default_envdev = "NAND flash";
@@ -229,6 +237,10 @@ static int physom_imx6_devices_init(void)
 		imx6_bbu_internal_mmc_register_handler("mmc3",
 						"/dev/mmc3",
 						BBU_HANDLER_FLAG_DEFAULT);
+	} else if (of_machine_is_compatible("phytec,imx6ul-pcl063-emmc")) {
+		imx6_bbu_internal_mmc_register_handler("mmc1",
+						"/dev/mmc1",
+						BBU_HANDLER_FLAG_DEFAULT);
 	} else {
 		imx6_bbu_nand_register_handler("nand", BBU_HANDLER_FLAG_DEFAULT);
 	}
@@ -236,13 +248,20 @@ static int physom_imx6_devices_init(void)
 	defaultenv_append_directory(defaultenv_physom_imx6);
 
 	/* Overwrite file /env/init/automount */
-	if (of_machine_is_compatible("phytec,imx6qp-pcm058-nand")
+	if (of_machine_is_compatible("phytec,imx6q-pfla02")
+		|| of_machine_is_compatible("phytec,imx6dl-pfla02")
+		|| of_machine_is_compatible("phytec,imx6s-pfla02")
+		|| of_machine_is_compatible("phytec,imx6q-pcaaxl3")) {
+		defaultenv_append_directory(defaultenv_physom_imx6);
+	} else if (of_machine_is_compatible("phytec,imx6qp-pcm058-nand")
 		|| of_machine_is_compatible("phytec,imx6q-pcm058-nand")
 		|| of_machine_is_compatible("phytec,imx6q-pcm058-emmc")
 		|| of_machine_is_compatible("phytec,imx6dl-pcm058-nand")
 		|| of_machine_is_compatible("phytec,imx6dl-pcm058-emmc")) {
+		defaultenv_append_directory(defaultenv_physom_imx6);
 		defaultenv_append_directory(defaultenv_physom_imx6_phycore);
-	} else if (of_machine_is_compatible("phytec,imx6ul-pcl063")) {
+	} else if (of_machine_is_compatible("phytec,imx6ul-pcl063-nand")
+		|| of_machine_is_compatible("phytec,imx6ul-pcl063-emmc")) {
 		defaultenv_append_directory(defaultenv_physom_imx6ul_phycore);
 	}
 

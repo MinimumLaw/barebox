@@ -27,27 +27,37 @@
 #include <asm/barebox-arm-head.h>
 #include <asm-generic/memory_layout.h>
 #include <asm/sections.h>
+#include <asm/secure.h>
 #include <asm/cache.h>
 #include <asm/mmu.h>
 #include <asm/unaligned.h>
 
 #include <debug_ll.h>
 
+#include "entry.h"
+
 unsigned long free_mem_ptr;
 unsigned long free_mem_end_ptr;
+
+extern unsigned char input_data[];
+extern unsigned char input_data_end[];
+
+extern unsigned char sha_sum[];
+extern unsigned char sha_sum_end[];
 
 void __noreturn barebox_multi_pbl_start(unsigned long membase,
 		unsigned long memsize, void *boarddata)
 {
-	uint32_t pg_len, uncompressed_len;
+	uint32_t pg_len, uncompressed_len, pbl_hash_len;
 	void __noreturn (*barebox)(unsigned long, unsigned long, void *);
 	unsigned long endmem = membase + memsize;
 	unsigned long barebox_base;
-	uint32_t *image_end;
-	void *pg_start;
+	void *pg_start, *pg_end;
+	void *pbl_hash_start, *pbl_hash_end;
 	unsigned long pc = get_pc();
 
-	image_end = (void *)__image_end_marker + global_variable_offset();
+	pg_start = input_data + global_variable_offset();
+	pg_end = input_data_end + global_variable_offset();
 
 	if (IS_ENABLED(CONFIG_PBL_RELOCATABLE)) {
 		/*
@@ -61,14 +71,7 @@ void __noreturn barebox_multi_pbl_start(unsigned long membase,
 			relocate_to_adr(membase);
 	}
 
-	/*
-	 * image_end is the image_end_marker defined above. It is the last location
-	 * in the executable. Right after the executable the build process adds
-	 * the size of the appended compressed binary followed by the compressed
-	 * binary itself.
-	 */
-	pg_start = image_end + 2;
-	pg_len = *(image_end + 1);
+	pg_len = pg_end - pg_start;
 	uncompressed_len = get_unaligned((const u32 *)(pg_start + pg_len - 4));
 
 	if (IS_ENABLED(CONFIG_RELOCATABLE))
@@ -93,10 +96,20 @@ void __noreturn barebox_multi_pbl_start(unsigned long membase,
 	pr_debug("uncompressing barebox binary at 0x%p (size 0x%08x) to 0x%08lx (uncompressed size: 0x%08x)\n",
 			pg_start, pg_len, barebox_base, uncompressed_len);
 
+	if (IS_ENABLED(CONFIG_PBL_VERIFY_PIGGY)) {
+		pbl_hash_start = sha_sum;
+		pbl_hash_end = sha_sum_end;
+		pbl_hash_len = pbl_hash_end - pbl_hash_start;
+		if (pbl_barebox_verify(pg_start, pg_len, pbl_hash_start,
+				       pbl_hash_len) != 0) {
+			putc_ll('!');
+			panic("hash mismatch, refusing to decompress");
+		}
+	}
+
 	pbl_barebox_uncompress((void*)barebox_base, pg_start, pg_len);
 
-	arm_early_mmu_cache_flush();
-	icache_invalidate();
+	sync_caches_for_execution();
 
 	if (IS_ENABLED(CONFIG_THUMB2_BAREBOX))
 		barebox = (void *)(barebox_base + 1);
@@ -104,6 +117,9 @@ void __noreturn barebox_multi_pbl_start(unsigned long membase,
 		barebox = (void *)barebox_base;
 
 	pr_debug("jumping to uncompressed image at 0x%p\n", barebox);
+
+	if (IS_ENABLED(CONFIG_CPU_V7) && boot_cpu_mode() == HYP_MODE)
+		armv7_switch_to_hyp();
 
 	barebox(membase, memsize, boarddata);
 }

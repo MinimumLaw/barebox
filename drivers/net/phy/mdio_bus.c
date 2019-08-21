@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * drivers/net/phy/mdio_bus.c
  *
@@ -6,12 +7,6 @@
  * Author: Andy Fleming
  *
  * Copyright (c) 2004 Freescale Semiconductor, Inc.
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
- *
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -26,6 +21,7 @@
 #include <errno.h>
 #include <linux/phy.h>
 #include <linux/err.h>
+#include <of_device.h>
 
 #define DEFAULT_GPIO_RESET_ASSERT       1000      /* us */
 #define DEFAULT_GPIO_RESET_DEASSERT     1000      /* us */
@@ -179,8 +175,19 @@ static int of_mdiobus_register(struct mii_bus *mdio, struct device_node *np)
 
 	/* Loop over the child nodes and register a phy_device for each one */
 	for_each_available_child_of_node(np, child) {
-		if (!of_mdiobus_child_is_phy(child))
+		if (!of_mdiobus_child_is_phy(child)) {
+			if (of_get_property(child, "compatible", NULL)) {
+				if (!of_platform_device_create(child,
+							       &mdio->dev)) {
+					dev_err(&mdio->dev,
+						"Failed to create device "
+						"for %s\n",
+						child->full_name);
+				}
+			}
+
 			continue;
+		}
 
 		ret = of_property_read_u32(child, "reg", &addr);
 		if (ret) {
@@ -222,7 +229,7 @@ int mdiobus_register(struct mii_bus *bus)
 
 	bus->dev.priv = bus;
 	bus->dev.id = DEVICE_ID_DYNAMIC;
-	strcpy(bus->dev.name, "miibus");
+	dev_set_name(&bus->dev, "miibus");
 	bus->dev.parent = bus->parent;
 	bus->dev.detect = mdiobus_detect;
 
@@ -335,16 +342,19 @@ EXPORT_SYMBOL(of_mdio_find_bus);
  * @dev: target PHY device
  * @drv: given PHY driver
  *
- * Description: Given a PHY device, and a PHY driver, return 1 if
- *   the driver supports the device.  Otherwise, return 0.
+ * Description: Given a PHY device, and a PHY driver, return 0 if
+ *   the driver supports the device.  Otherwise, return 1.
  */
 static int mdio_bus_match(struct device_d *dev, struct driver_d *drv)
 {
 	struct phy_device *phydev = to_phy_device(dev);
 	struct phy_driver *phydrv = to_phy_driver(drv);
 
-	return ((phydrv->phy_id & phydrv->phy_id_mask) !=
-		(phydev->phy_id & phydrv->phy_id_mask));
+	if ((phydrv->phy_id & phydrv->phy_id_mask) ==
+	    (phydev->phy_id & phydrv->phy_id_mask))
+		return 0;
+
+	return 1;
 }
 
 static ssize_t phydev_read(struct cdev *cdev, void *_buf, size_t count, loff_t offset, ulong flags)
@@ -382,7 +392,6 @@ static ssize_t phydev_write(struct cdev *cdev, const void *_buf, size_t count, l
 static struct cdev_operations phydev_ops = {
 	.read  = phydev_read,
 	.write = phydev_write,
-	.lseek = dev_lseek_default,
 };
 
 static void of_set_phy_supported(struct phy_device *phydev)

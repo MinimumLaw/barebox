@@ -27,7 +27,6 @@
 #include <asm/barebox-arm-head.h>
 #include <mach/imx31-regs.h>
 #include <mach/imx-pll.h>
-#include <asm/barebox-arm-head.h>
 #include <mach/esdctl.h>
 
 static noinline __noreturn void mx31moboard_startup(void)
@@ -103,7 +102,7 @@ static noinline __noreturn void mx31moboard_startup(void)
 
 }
 
-void __bare_init __naked barebox_arm_reset_vector(void)
+void __bare_init __naked barebox_arm_reset_vector(uint32_t r0, uint32_t r1, uint32_t r2)
 {
 	arm_cpu_lowlevel_init();
 

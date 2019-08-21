@@ -1,17 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2014 Lucas Stach <l.stach@pengutronix.de>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <common.h>
@@ -237,9 +226,6 @@ static void rtl8169_init_ring(struct rtl8169_priv *priv)
 	priv->rx_buf = malloc(NUM_RX_DESC * PKT_BUF_SIZE);
 	dma_sync_single_for_device((unsigned long)priv->rx_buf,
 				   NUM_RX_DESC * PKT_BUF_SIZE, DMA_FROM_DEVICE);
-
-	memset((void *)priv->tx_desc, 0, NUM_TX_DESC * sizeof(struct bufdesc));
-	memset((void *)priv->rx_desc, 0, NUM_RX_DESC * sizeof(struct bufdesc));
 
 	for (i = 0; i < NUM_RX_DESC; i++) {
 		if (i == (NUM_RX_DESC - 1))
@@ -555,9 +541,4 @@ static struct pci_driver rtl8169_eth_driver = {
 	.id_table = rtl8169_pci_tbl,
 	.probe = rtl8169_probe,
 };
-
-static int rtl8169_init(void)
-{
-	return pci_register_driver(&rtl8169_eth_driver);
-}
-device_initcall(rtl8169_init);
+device_pci_driver(rtl8169_eth_driver);

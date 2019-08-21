@@ -15,7 +15,6 @@
  */
 
 #include <common.h>
-#include <init.h>
 #include <driver.h>
 #include <xfuncs.h>
 #include <errno.h>
@@ -102,7 +101,6 @@ static ssize_t stmpe_write(struct cdev *cdev, const void *_buf, size_t count, lo
 }
 
 static struct cdev_operations stmpe_fops = {
-	.lseek	= dev_lseek_default,
 	.read	= stmpe_read,
 	.write	= stmpe_write,
 };
@@ -173,11 +171,4 @@ static struct driver_d stmpe_driver = {
 	.probe = stmpe_probe,
 	.id_table = stmpe_i2c_id,
 };
-
-static int stmpe_init(void)
-{
-        i2c_driver_register(&stmpe_driver);
-        return 0;
-}
-
-device_initcall(stmpe_init);
+device_i2c_driver(stmpe_driver);

@@ -16,7 +16,6 @@
  *
  */
 #include <common.h>
-#include <init.h>
 #include <driver.h>
 #include <xfuncs.h>
 #include <errno.h>
@@ -245,6 +244,9 @@ static int mtl017_probe(struct device_d *dev)
 	mtl017->client = to_i2c_client(dev);
 	mtl017->regulator = regulator_get(dev, "vdd");
 
+	if (IS_ERR(mtl017->regulator))
+		mtl017->regulator = NULL;
+
 	mtl017->enable_gpio = of_get_named_gpio_flags(dev->device_node,
 			"enable-gpios", 0, &flags);
 	if (gpio_is_valid(mtl017->enable_gpio)) {
@@ -266,15 +268,8 @@ static int mtl017_probe(struct device_d *dev)
 	return 0;
 }
 
-static struct driver_d twl_driver = {
+static struct driver_d mtl_driver = {
 	.name  = "mtl017",
 	.probe = mtl017_probe,
 };
-
-static int mtl017_init(void)
-{
-	i2c_driver_register(&twl_driver);
-	return 0;
-}
-
-device_initcall(mtl017_init);
+device_i2c_driver(mtl_driver);

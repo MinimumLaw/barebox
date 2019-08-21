@@ -23,6 +23,38 @@
 			compatible = "barebox,environment";
 			device-path = &spinor, "partname:barebox-environment";
 		};
+
+		ubootenv {
+			compatible = "barebox,uboot-environment";
+			device-path = &uboot_env;
+		};
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		/* Address will be determined by the bootloader */
+		ramoops@afe00000 {
+			compatible = "ramoops";
+			reg = <0xafe00000 0x200000>;
+			ecc-size = <16>;
+			record-size = <0x20000>;
+			console-size = <0x20000>;
+			ftrace-size = <0x20000>;
+			pmsg-size = <0x20000>;
+		};
+	};
+
+	aliases {
+		/*
+		 * NVMEM device corresponding to EEPROM attached to
+                 * the switch shared DT node with it, so we use that
+                 * fact to create a desirable naming
+		 */
+		switch-eeprom = &switch;
+		microwire-eeprom = &microwire_eeprom;
 	};
 };
 
@@ -51,6 +83,30 @@
 	};
 };
 
+&esdhc1 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/*
+		 * Layout info is taken from /etc/fw_env.config
+		 */
+		uboot_env: partition@c0000 {
+			label = "uboot-environment";
+			reg = <0xc0000 0x20000>;
+		};
+	};
+};
+
+&mdio_gpio {
+	switch: switch@0 {};
+};
+
+&spi_gpio {
+	microwire_eeprom: eeprom@0 {};
+};
+
 &uart3 {
 	rave-sp {
 		watchdog {
@@ -59,11 +115,22 @@
 		};
 
 		eeprom@a4 {
+			nvmem-cells = <&shadow_config>;
+			nvmem-cell-names = "shadow-config";
+
 			boot_source: boot-source@83 {
 				reg = <0x83 1>;
 			};
+
+			shadow_config: shadow-config@1000 {
+				reg = <0x1000 0x400>;
+			};
 		};
 	};
+};
+
+&fec {
+	status = "disabled";
 };
 
 &iomuxc {

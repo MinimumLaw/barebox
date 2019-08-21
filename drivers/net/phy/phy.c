@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * drivers/net/phy/phy.c
  *
@@ -9,12 +10,6 @@
  * Author: Andy Fleming
  *
  * Copyright (c) 2004 Freescale Semiconductor, Inc.
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
- *
  */
 
 #include <common.h>
@@ -176,12 +171,12 @@ struct phy_device *phy_device_create(struct mii_bus *bus, int addr, int phy_id)
 	phydev->dev.bus = &mdio_bus_type;
 
 	if (bus) {
-		sprintf(phydev->dev.name, "mdio%d-phy%02x",
-				   phydev->bus->dev.id,
-				   phydev->addr);
+		dev_set_name(&phydev->dev, "mdio%d-phy%02x",
+			     phydev->bus->dev.id,
+			     phydev->addr);
 		phydev->dev.id = DEVICE_ID_SINGLE;
 	} else {
-		sprintf(phydev->dev.name, "fixed-phy");
+		dev_set_name(&phydev->dev, "fixed-phy");
 		phydev->dev.id = DEVICE_ID_DYNAMIC;
 	}
 
@@ -233,6 +228,10 @@ struct phy_device *get_phy_device(struct mii_bus *bus, int addr)
 	struct phy_device *phydev = NULL;
 	u32 phy_id = 0;
 	int r;
+
+	/* skip masked out PHY addresses */
+	if (bus->phy_mask & BIT(addr))
+		return ERR_PTR(-ENODEV);
 
 	r = get_phy_id(bus, addr, &phy_id);
 	if (r)
@@ -398,6 +397,10 @@ static int phy_device_attach(struct phy_device *phy, struct eth_device *edev,
 
 	phy->adjust_link = adjust_link;
 
+	/* If the phy is a fixed-link, then call adjust_link directly */
+	if (!phy->bus && adjust_link)
+		adjust_link(edev);
+
 	return 0;
 }
 
@@ -440,9 +443,6 @@ int phy_device_connect(struct eth_device *edev, struct mii_bus *bus, int addr,
 	}
 
 	for (i = 0; i < PHY_MAX_ADDR && !edev->phydev; i++) {
-		/* skip masked out PHY addresses */
-		if (bus->phy_mask & (1 << i))
-			continue;
 
 		phy = mdiobus_scan(bus, i);
 		if (IS_ERR(phy))

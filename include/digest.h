@@ -100,7 +100,7 @@ void digest_free(struct digest *d);
 int digest_file_window(struct digest *d, const char *filename,
 		       unsigned char *hash,
 		       const unsigned char *sig,
-		       ulong start, ulong size);
+		       loff_t start, loff_t size);
 int digest_file(struct digest *d, const char *filename,
 		unsigned char *hash,
 		const unsigned char *sig);
@@ -109,6 +109,11 @@ int digest_file_by_name(const char *algo, const char *filename,
 			const unsigned char *sig);
 #else
 static inline struct digest *digest_alloc(const char *name)
+{
+	return NULL;
+}
+
+static inline struct digest *digest_alloc_by_algo(enum hash_algo algo)
 {
 	return NULL;
 }

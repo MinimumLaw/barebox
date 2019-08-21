@@ -26,12 +26,17 @@
 #include <asm/barebox-arm-head.h>
 #include <asm-generic/memory_layout.h>
 #include <asm/sections.h>
+#include <asm/secure.h>
 #include <asm/cache.h>
 #include <asm/mmu.h>
 #include <asm/unaligned.h>
 
+#include "entry.h"
+
 unsigned long free_mem_ptr;
 unsigned long free_mem_end_ptr;
+
+void pbl_start(void);
 
 /*
  * First instructions in the pbl image
@@ -90,13 +95,15 @@ __noreturn void barebox_single_pbl_start(unsigned long membase,
 
 	pbl_barebox_uncompress((void*)barebox_base, (void *)pg_start, pg_len);
 
-	arm_early_mmu_cache_flush();
-	icache_invalidate();
+	sync_caches_for_execution();
 
 	if (IS_ENABLED(CONFIG_THUMB2_BAREBOX))
 		barebox = (void *)(barebox_base + 1);
 	else
 		barebox = (void *)barebox_base;
+
+	if (IS_ENABLED(CONFIG_CPU_V7) && boot_cpu_mode() == HYP_MODE)
+		armv7_switch_to_hyp();
 
 	barebox(membase, memsize, boarddata);
 }

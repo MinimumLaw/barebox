@@ -23,12 +23,42 @@
 #include <asm/barebox-arm.h>
 #include <asm/barebox-arm-head.h>
 #include <asm-generic/memory_layout.h>
+#include <asm/secure.h>
 #include <asm/sections.h>
 #include <asm/cache.h>
 #include <debug_ll.h>
 
+/**
+ * sync_caches_for_execution - synchronize caches for code execution
+ *
+ * Code has been modified in memory, call this before executing it.
+ * This function flushes the data cache up to the point of unification
+ * and invalidates the instruction cache.
+ */
+void sync_caches_for_execution(void)
+{
+	/*
+	 * Despite the name arm_early_mmu_cache_flush not only flushes the
+	 * data cache, but also invalidates the instruction cache.
+	 */
+	arm_early_mmu_cache_flush();
+}
+
 #define R_ARM_RELATIVE 23
 #define R_AARCH64_RELATIVE 1027
+
+void pbl_barebox_break(void)
+{
+	__asm__ __volatile__ (
+#ifdef CONFIG_PBL_BREAK
+		"bkpt #17\n"
+		"nop\n"
+#else
+		"nop\n"
+		"nop\n"
+#endif
+	);
+}
 
 /*
  * relocate binary to the currently running address
@@ -103,8 +133,7 @@ void relocate_to_current_adr(void)
 #error "Architecture not specified"
 #endif
 
-	arm_early_mmu_cache_flush();
-	icache_invalidate();
+	sync_caches_for_execution();
 }
 
 #ifdef ARM_MULTIARCH
@@ -119,3 +148,10 @@ int __pure cpu_architecture(void)
 	return __cpu_architecture;
 }
 #endif
+
+extern int __boot_cpu_mode;
+
+int boot_cpu_mode(void)
+{
+	return __boot_cpu_mode;
+}

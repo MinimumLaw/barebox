@@ -25,7 +25,7 @@ static bool uimagefs_is_data_file(struct uimagefs_handle_data *d)
 	return d->type == UIMAGEFS_DATA;
 }
 
-const char* uimagefs_type_to_str(enum uimagefs_type type)
+static const char* uimagefs_type_to_str(enum uimagefs_type type)
 {
 	switch (type) {
 	case UIMAGEFS_DATA:
@@ -116,7 +116,7 @@ static int uimagefs_read(struct device_d *dev, FILE *file, void *buf, size_t ins
 	}
 }
 
-static loff_t uimagefs_lseek(struct device_d *dev, FILE *file, loff_t pos)
+static int uimagefs_lseek(struct device_d *dev, FILE *file, loff_t pos)
 {
 	struct uimagefs_handle_data *d = file->priv;
 
@@ -125,7 +125,7 @@ static loff_t uimagefs_lseek(struct device_d *dev, FILE *file, loff_t pos)
 
 	d->pos = pos;
 
-	return pos;
+	return 0;
 }
 
 static DIR *uimagefs_opendir(struct device_d *dev, const char *pathname)

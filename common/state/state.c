@@ -83,7 +83,7 @@ out:
 }
 
 /**
- * state_load - Loads a state from the backend
+ * state_do_load - Loads a state from the backend
  * @param state The state that should be updated to contain the loaded data
  * @return 0 on success, -errno on failure. If no state is loaded the previous
  * values remain in the state.
@@ -128,7 +128,7 @@ int state_load(struct state *state)
 
 int state_load_no_auth(struct state *state)
 {
-	return state_do_load(state, STATE_FLAG_NO_AUTHENTIFICATION);
+	return state_do_load(state, STATE_FLAG_NO_AUTHENTICATION);
 }
 
 static int state_format_init(struct state *state, const char *backend_format,
@@ -179,7 +179,7 @@ static struct state *state_new(const char *name)
 	int ret;
 
 	state = xzalloc(sizeof(*state));
-	safe_strncpy(state->dev.name, name, MAX_DRIVER_NAME);
+	dev_set_name(&state->dev, name);
 	state->name = state->dev.name;
 	state->dev.id = DEVICE_ID_SINGLE;
 	INIT_LIST_HEAD(&state->variables);
@@ -311,7 +311,7 @@ static int state_convert_node_variable(struct state *state,
 		if ((conv == STATE_CONVERT_TO_NODE)
 		    || (conv == STATE_CONVERT_FIXUP)) {
 			ret = of_property_write_string(new_node, "type",
-					      vtype->type_name);
+						       vtype->type_name);
 			if (ret)
 				goto out;
 
@@ -583,6 +583,7 @@ void state_release(struct state *state)
 /*
  * state_new_from_node - create a new state instance from a device_node
  *
+ * @node	The device_node describing the new state instance
  * @readonly	This is a read-only state. Note that with this option set,
  *		there are no repairs done.
  */
@@ -595,6 +596,8 @@ struct state *state_new_from_node(struct device_node *node, bool readonly)
 	const char *alias;
 	uint32_t stridesize;
 	struct device_node *partition_node;
+	off_t offset = 0;
+	size_t size = 0;
 
 	alias = of_alias_get(node);
 	if (!alias) {
@@ -613,7 +616,11 @@ struct state *state_new_from_node(struct device_node *node, bool readonly)
 		goto out_release_state;
 	}
 
+#ifdef __BAREBOX__
 	ret = of_find_path_by_node(partition_node, &state->backend_path, 0);
+#else
+	ret = of_get_devicepath(partition_node, &state->backend_path, &offset, &size);
+#endif
 	if (ret) {
 		if (ret != -EPROBE_DEFER)
 			dev_err(&state->dev, "state failed to parse path to backend: %s\n",
@@ -644,8 +651,8 @@ struct state *state_new_from_node(struct device_node *node, bool readonly)
 	if (ret)
 		goto out_release_state;
 
-	ret = state_storage_init(state, state->backend_path, 0,
-				 0, stridesize, storage_type);
+	ret = state_storage_init(state, state->backend_path, offset,
+				 size, stridesize, storage_type);
 	if (ret)
 		goto out_release_state;
 

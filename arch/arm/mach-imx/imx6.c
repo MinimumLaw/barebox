@@ -23,15 +23,12 @@
 #include <mach/reset-reason.h>
 #include <mach/imx6-anadig.h>
 #include <mach/imx6-regs.h>
-#include <mach/generic.h>
+#include <mach/imx6-fusemap.h>
 #include <mach/usb.h>
 #include <asm/mmu.h>
 #include <asm/cache-l2x0.h>
 
 #include <poweroff.h>
-#include <mach/imx6-regs.h>
-#include <mach/clock-imx6.h>
-#include <io.h>
 
 #define CLPCR				0x54
 #define BP_CLPCR_LPM(mode)		((mode) & 0x3)
@@ -41,6 +38,9 @@
 #define BP_CLPCR_STBY_COUNT		9
 #define BM_CLPCR_COSC_PWRDOWN		(0x1 << 11)
 #define BM_CLPCR_BYP_MMDC_CH1_LPM_HS	(0x1 << 21)
+
+#define MX6_OCOTP_CFG0			0x410
+#define MX6_OCOTP_CFG1			0x420
 
 static void imx6_init_lowlevel(void)
 {
@@ -121,7 +121,7 @@ static void imx6_setup_ipu_qos(void)
 	uint32_t val;
 
 	if (!cpu_mx6_is_mx6q() && !cpu_mx6_is_mx6d() &&
-	    !cpu_mx6_is_mx6dl() && cpu_mx6_is_mx6s())
+	    !cpu_mx6_is_mx6dl() && !cpu_mx6_is_mx6s())
 		return;
 
 	val = readl(iomux + IOMUXC_GPR4);
@@ -190,17 +190,30 @@ int imx6_cpu_revision(void)
 	return soc_revision;
 }
 
+u64 imx6_uid(void)
+{
+	void __iomem *ocotpbase = IOMEM(MX6_OCOTP_BASE_ADDR);
+	u64 uid;
+
+	uid = ((u64)readl(ocotpbase + MX6_OCOTP_CFG0) << 32);
+	uid |= (u64)readl(ocotpbase + MX6_OCOTP_CFG1);
+
+	return uid;
+}
+
 int imx6_init(void)
 {
 	const char *cputypestr;
 	u32 mx6_silicon_revision;
 	void __iomem *src = IOMEM(MX6_SRC_BASE_ADDR);
+	u64 mx6_uid;
 
 	imx6_init_lowlevel();
 
 	imx6_boot_save_loc();
 
 	mx6_silicon_revision = imx6_cpu_revision();
+	mx6_uid = imx6_uid();
 
 	switch (imx6_cpu_type()) {
 	case IMX6_CPUTYPE_IMX6Q:
@@ -240,6 +253,8 @@ int imx6_init(void)
 
 	imx_set_silicon_revision(cputypestr, mx6_silicon_revision);
 	imx_set_reset_reason(src + IMX_SRC_SRSR, imx_reset_reasons);
+	pr_info("%s unique ID: %llx\n", cputypestr, mx6_uid);
+
 	imx6_setup_ipu_qos();
 	imx6ul_enet_clk_init();
 

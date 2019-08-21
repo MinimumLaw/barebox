@@ -26,10 +26,10 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <endian.h>
 #include <linux/kernel.h>
 #include <sys/file.h>
 #include <mach/imx_cpu_types.h>
+#include "../compiler.h"
 
 #include "imx.h"
 
@@ -132,6 +132,14 @@ void RSA_get0_key(const RSA *r, const BIGNUM **n,
 	if (d != NULL)
 		*d = r->d;
 }
+
+RSA *EVP_PKEY_get0_RSA(EVP_PKEY *pkey)
+{
+    if (pkey->type != EVP_PKEY_RSA)
+        return NULL;
+
+    return pkey->pkey.rsa;
+}
 #endif
 
 static int extract_key(const char *certfile, uint8_t **modulus, int *modulus_len,
@@ -145,7 +153,8 @@ static int extract_key(const char *certfile, uint8_t **modulus, int *modulus_len
 
 	fp = fopen(certfile, "r");
 	if (!fp) {
-		fprintf(stderr, "unable to open certfile: %s\n", certfile);
+		fprintf(stderr, "unable to open certfile %s: %s\n", certfile,
+			strerror(errno));
 		return -errno;
 	}
 
@@ -306,6 +315,16 @@ static size_t add_header_v2(const struct config_data *data, void *buf)
 	uint32_t loadaddr = data->image_load_addr;
 	uint32_t imagesize = data->load_size;
 
+	if (data->pbl_code_size) {
+		/*
+		 * Restrict the imagesize to the PBL if given.
+		 * Also take the alignment for CSF into account.
+		 */
+		imagesize = roundup(data->pbl_code_size + HEADER_LEN, 0x4);
+		if (data->csf)
+			imagesize = roundup(imagesize, 0x1000);
+	}
+
 	buf += offset;
 	hdr = buf;
 
@@ -324,10 +343,21 @@ static size_t add_header_v2(const struct config_data *data, void *buf)
 	hdr->self		= loadaddr + offset;
 
 	hdr->boot_data.start	= loadaddr;
-	hdr->boot_data.size	= imagesize;
+	if (!data->csf && data->max_load_size
+	    && imagesize > data->max_load_size)
+		hdr->boot_data.size	= data->max_load_size;
+	else
+		hdr->boot_data.size	= imagesize;
 
-	if (data->csf) {
+	if (data->sign_image) {
 		hdr->csf = loadaddr + imagesize;
+		hdr->boot_data.size += CSF_LEN;
+	} else if (data->pbl_code_size && data->csf) {
+		/*
+		 * For i.MX8 the CSF space is added via the linker script, so
+		 * the CSF length needs to be added if HABV4 is enabled but
+		 * signing is not.
+		 */
 		hdr->boot_data.size += CSF_LEN;
 	}
 
@@ -351,6 +381,15 @@ static void usage(const char *prgname)
 		"-b           add barebox header to image. If used, barebox recognizes\n"
 		"             the image as regular barebox image which can be used as\n"
 		"             second stage image\n"
+		"-d           write DCD table only\n"
+		"-e           prepare image for encryption and use Freescale's Code Signing\n"
+		"             to encrypt image. Note that the device-specific encapsulated\n"
+		"             DEK as cryptgraphic blob needs to be appended afterwards\n"
+		"-s           use Freescale's Code Signing Tool (CST) to sign the image\n"
+		"             'cst' is expected to be in PATH or given via the environment\n"
+		"             variable 'CST'\n"
+		"-u           create USB image suitable for imx-usb-loader\n"
+		"             necessary for signed images (-s) only\n"
 		"-h           this help\n", prgname);
 	exit(1);
 }
@@ -447,7 +486,8 @@ static void write_dcd(const char *outfile)
 
 	outfd = open(outfile, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 	if (outfd < 0) {
-		perror("open");
+		fprintf(stderr, "Cannot open %s for wrinting: %s\n", outfile,
+			strerror(errno));
 		exit(1);
 	}
 
@@ -533,6 +573,7 @@ static int hab_sign(struct config_data *data)
 	char *cst;
 	void *buf;
 	size_t csf_space = CSF_LEN;
+	unsigned int offset = 0;
 
 	cst = getenv("CST");
 	if (!cst)
@@ -659,7 +700,35 @@ static int hab_sign(struct config_data *data)
 		return -errno;
 	}
 
-	outfd = open(data->outfile, O_WRONLY | O_APPEND);
+	/*
+	 * For i.MX8, write into the reserved CSF section
+	 */
+	if (data->cpu_type == IMX_CPU_IMX8MQ)
+		outfd = open(data->outfile, O_WRONLY);
+	else
+		outfd = open(data->outfile, O_WRONLY | O_APPEND);
+
+	if (outfd < 0) {
+		fprintf(stderr, "Cannot open %s for writing: %s\n", data->outfile,
+			strerror(errno));
+		exit(1);
+	}
+
+	if (data->cpu_type == IMX_CPU_IMX8MQ) {
+		/*
+		 * For i.MX8 insert the CSF data into the reserved CSF area
+		 * right behind the PBL
+		 */
+		offset = roundup(data->header_gap + data->pbl_code_size +
+				 HEADER_LEN, 0x1000);
+		if (data->signed_hdmi_firmware_file)
+			offset += PLUGIN_HDMI_SIZE;
+
+		if (lseek(outfd, offset, SEEK_SET) < 0) {
+			perror("lseek");
+			exit(1);
+		}
+	}
 
 	ret = xwrite(outfd, buf, csf_space);
 	if (ret < 0) {
@@ -676,7 +745,7 @@ static int hab_sign(struct config_data *data)
 	return 0;
 }
 
-static void *read_file(const char *filename, size_t *size)
+static void *xread_file(const char *filename, size_t *size)
 {
 	int fd, ret;
 	void *buf;
@@ -684,18 +753,22 @@ static void *read_file(const char *filename, size_t *size)
 
 	fd = open(filename, O_RDONLY);
 	if (fd < 0) {
-		perror("open");
+		fprintf(stderr, "Cannot open %s: %s\n", filename, strerror(errno));
 		exit(1);
 	}
 
 	ret = fstat(fd, &s);
-	if (ret)
-		return NULL;
+	if (ret) {
+		fprintf(stderr, "Cannot stat %s: %s\n", filename, strerror(errno));
+		exit(1);
+	}
 
 	*size = s.st_size;
 	buf = malloc(*size);
-	if (!buf)
+	if (!buf) {
+		perror("malloc");
 		exit(1);
+	}
 
 	xread(fd, buf, *size);
 
@@ -721,7 +794,6 @@ int main(int argc, char *argv[])
 	int outfd;
 	int dcd_only = 0;
 	int now = 0;
-	int sign_image = 0;
 	int i, header_copies;
 	int add_barebox_header;
 	uint32_t barebox_image_size = 0;
@@ -738,7 +810,7 @@ int main(int argc, char *argv[])
 
 	prgname = argv[0];
 
-	while ((opt = getopt(argc, argv, "c:hf:o:bduse")) != -1) {
+	while ((opt = getopt(argc, argv, "c:hf:o:p:bduse")) != -1) {
 		switch (opt) {
 		case 'c':
 			configfile = optarg;
@@ -749,6 +821,9 @@ int main(int argc, char *argv[])
 		case 'o':
 			data.outfile = optarg;
 			break;
+		case 'p':
+			data.pbl_code_size = strtoul(optarg, NULL, 0);
+			break;
 		case 'b':
 			add_barebox_header = 1;
 			break;
@@ -756,7 +831,7 @@ int main(int argc, char *argv[])
 			dcd_only = 1;
 			break;
 		case 's':
-			sign_image = 1;
+			data.sign_image = 1;
 			break;
 		case 'u':
 			create_usb_image = 1;
@@ -797,12 +872,12 @@ int main(int argc, char *argv[])
 	}
 
 	/*
-	 * Add HEADER_LEN to the image size for the blank aera + IVT + DCD.
+	 * Add HEADER_LEN to the image size for the blank area + IVT + DCD.
 	 * Align up to a 4k boundary, because:
 	 * - at least i.MX5 NAND boot only reads full NAND pages and misses the
 	 *   last partial NAND page.
 	 * - i.MX6 SPI NOR boot corrupts the last few bytes of an image loaded
-	 *   in ver funy ways when the image size is not 4 byte aligned
+	 *   in very funny ways when the image size is not 4 byte aligned
 	 */
 	data.load_size = roundup(data.image_size + header_len, 0x1000);
 
@@ -810,8 +885,11 @@ int main(int argc, char *argv[])
 	if (ret)
 		exit(1);
 
-	if (!sign_image)
-		data.csf = NULL;
+	if (data.max_load_size && (data.encrypt_image || data.csf)
+	    && data.cpu_type != IMX_CPU_IMX8MQ) {
+		fprintf(stderr, "Specifying max_load_size is incompatible with HAB signing/encrypting\n");
+		exit(1);
+	}
 
 	if (create_usb_image && !data.csf) {
 		fprintf(stderr, "Warning: the -u option only has effect with signed images\n");
@@ -861,12 +939,8 @@ int main(int argc, char *argv[])
 
 		if (data.signed_hdmi_firmware_file) {
 			free(buf);
-			buf = read_file(data.signed_hdmi_firmware_file,
+			buf = xread_file(data.signed_hdmi_firmware_file,
 					&signed_hdmi_firmware_size);
-			if (!buf) {
-				perror("read_file");
-				exit(1);
-			}
 
 			signed_hdmi_firmware_size =
 				roundup(signed_hdmi_firmware_size,
@@ -894,6 +968,12 @@ int main(int argc, char *argv[])
 	if (cpu_is_aarch64(&data)) {
 		bb_header = bb_header_aarch64;
 		sizeof_bb_header = sizeof(bb_header_aarch64);
+		/*
+		 * Compute jump offset, must be done dynamically as the code
+		 * location changes depending on the presence of a signed HDMI
+		 * firmware.
+		 */
+		data.first_opcode |= (data.header_gap + header_len) >> 2;
 	} else {
 		bb_header = bb_header_aarch32;
 		sizeof_bb_header = sizeof(bb_header_aarch32);
@@ -902,13 +982,12 @@ int main(int argc, char *argv[])
 	bb_header[0] = data.first_opcode;
 	bb_header[ARM_HEAD_SIZE_INDEX] = barebox_image_size;
 
-	infile = read_file(imagename, &insize);
-	if (!infile)
-		exit(1);
+	infile = xread_file(imagename, &insize);
 
 	outfd = open(data.outfile, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 	if (outfd < 0) {
-		perror("open");
+		fprintf(stderr, "Cannot open %s for writing: %s\n", data.outfile,
+			strerror(errno));
 		exit(1);
 	}
 
@@ -959,7 +1038,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	if (data.csf) {
+	if (data.csf && data.sign_image) {
 		ret = hab_sign(&data);
 		if (ret)
 			exit(1);
@@ -968,7 +1047,7 @@ int main(int argc, char *argv[])
 	if (create_usb_image) {
 		uint32_t *dcd;
 
-		infile = read_file(data.outfile, &insize);
+		infile = xread_file(data.outfile, &insize);
 
 		dcd = infile + dcd_ptr_offset;
 		*dcd = dcd_ptr_content;

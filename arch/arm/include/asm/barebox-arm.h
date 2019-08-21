@@ -31,6 +31,7 @@
 #include <linux/types.h>
 #include <linux/compiler.h>
 #include <asm/barebox-arm-head.h>
+#include <asm/sections.h>
 
 /*
  * We have a 4GiB address space split into 1MiB sections, with each
@@ -43,18 +44,26 @@ unsigned long get_runtime_offset(void);
 /* global_variable_offset() - Access global variables when not running at link address
  *
  * Get the offset of global variables when not running at the address we are
- * linked at. ARM uses absolute addresses, so we must add the runtime offset
- * whereas aarch64 uses PC relative addresses, so nothing must be done here.
+ * linked at.
  */
 static inline unsigned long global_variable_offset(void)
 {
-	if (IS_ENABLED(CONFIG_CPU_32))
-		return get_runtime_offset();
-	else
-		return 0;
+#ifdef CONFIG_CPU_V8
+	unsigned long text;
+
+	__asm__ __volatile__(
+		"adr    %0, _text\n"
+		: "=r" (text)
+		:
+		: "memory");
+	return text - (unsigned long)_text;
+#else
+	return get_runtime_offset();
+#endif
 }
 
 void setup_c(void);
+void pbl_barebox_break(void);
 void relocate_to_current_adr(void);
 void relocate_to_adr(unsigned long target);
 void __noreturn barebox_arm_entry(unsigned long membase, unsigned long memsize, void *boarddata);
@@ -85,6 +94,9 @@ static inline void boarddata_create(void *adr, u32 machine)
 
 u32 barebox_arm_machine(void);
 
+unsigned long arm_mem_ramoops_get(void);
+unsigned long arm_mem_endmem_get(void);
+
 struct barebox_arm_boarddata_compressed_dtb {
 #define BAREBOX_ARM_BOARDDATA_COMPRESSED_DTB_MAGIC 0x7b66bcbd
 	u32 magic;
@@ -107,6 +119,9 @@ void *barebox_arm_boot_dtb(void);
 static inline unsigned long arm_mem_stack_top(unsigned long membase,
 					      unsigned long endmem)
 {
+	if (IS_ENABLED(CONFIG_BOOTM_OPTEE))
+		endmem -= OPTEE_SIZE;
+
 	return endmem - SZ_64K;
 }
 
@@ -166,6 +181,8 @@ static inline unsigned long arm_mem_barebox_image(unsigned long membase,
 }
 
 #define ENTRY_FUNCTION(name, arg0, arg1, arg2)				\
+	void name (uint32_t r0, uint32_t r1, uint32_t r2);		\
+									\
 	static void __##name(uint32_t, uint32_t, uint32_t);		\
 									\
 	void NAKED __section(.text_head_entry_##name)	name		\

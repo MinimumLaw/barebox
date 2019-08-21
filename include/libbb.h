@@ -17,6 +17,7 @@ enum {
 	ACTION_FOLLOWLINKS    = (1 << 1),
 	ACTION_DEPTHFIRST  = (1 << 2),
 	/*ACTION_REVERSE   = (1 << 3), - unused */
+	ACTION_SORT        = (1 << 4),
 };
 
 int recursive_action(const char *fileName, unsigned flags,
@@ -27,7 +28,5 @@ int recursive_action(const char *fileName, unsigned flags,
 char * safe_strncpy(char *dst, const char *src, size_t size);
 
 int process_escape_sequence(const char *source, char *dest, int destlen);
-
-char *simple_itoa(unsigned int i);
 
 #endif /* __LIBBB_H */

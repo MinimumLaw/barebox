@@ -20,9 +20,13 @@
 
 #include <common.h>
 #include <hab.h>
+#include <init.h>
 #include <types.h>
+#include <linux/arm-smccc.h>
+#include <asm/cache.h>
 
 #include <mach/generic.h>
+#include <mach/imx8mq.h>
 
 #define HABV4_RVT_IMX28 0xffff8af8
 #define HABV4_RVT_IMX6_OLD 0x00000094
@@ -175,6 +179,92 @@ struct habv4_rvt {
 	enum hab_status (*report_status)(enum hab_config *config, enum hab_state *state);
 	void (*failsafe)(void);
 } __packed;
+
+#define FSL_SIP_HAB             0xC2000007
+#define FSL_SIP_HAB_AUTHENTICATE        0x00
+#define FSL_SIP_HAB_ENTRY               0x01
+#define FSL_SIP_HAB_EXIT                0x02
+#define FSL_SIP_HAB_REPORT_EVENT        0x03
+#define FSL_SIP_HAB_REPORT_STATUS       0x04
+#define FSL_SIP_HAB_FAILSAFE            0x05
+#define FSL_SIP_HAB_CHECK_TARGET        0x06
+
+static enum hab_status hab_sip_report_status(enum hab_config *config,
+					     enum hab_state *state)
+{
+	struct arm_smccc_res res;
+
+	if (state)
+		v8_flush_dcache_range((unsigned long)state,
+				      (unsigned long)state + sizeof(*config));
+	if (config)
+		v8_flush_dcache_range((unsigned long)config,
+				      (unsigned long)config + sizeof(*state));
+
+	arm_smccc_smc(FSL_SIP_HAB, FSL_SIP_HAB_REPORT_STATUS,
+		      (unsigned long) config,
+		      (unsigned long) state, 0, 0, 0, 0, &res);
+	if (state)
+		v8_inv_dcache_range((unsigned long)state,
+				    (unsigned long)state + sizeof(*config));
+	if (config)
+		v8_inv_dcache_range((unsigned long)config,
+				    (unsigned long)config + sizeof(*state));
+	return (enum hab_status)res.a0;
+}
+
+static enum hab_status imx8_read_sram_events(enum hab_status status,
+					     uint32_t index, void *event,
+					     uint32_t *bytes)
+{
+	struct hab_event_record *events[10];
+	int num_events = 0;
+	char *sram = (char *)0x9061c0;
+	int i = 0;
+	int internal_index = 0;
+	char *end = 0;
+	struct hab_event_record *search;
+
+	/*
+	 * AN12263 HABv4 Guidelines and Recommendations
+	 * recommends the address and size, however errors are usually contained
+	 * within the first bytes. Scan only the first few bytes to rule out
+	 * lots of false positives.
+	 */
+	end = sram +  0x1a0;
+
+	while (sram < end) {
+		if (*sram == 0xdb) {
+			search = (void *)sram;
+			sram = sram + be16_to_cpu(search->hdr.len);
+			events[num_events] = search;
+			num_events++;
+		} else {
+			sram++;
+		}
+	}
+	while (i < num_events) {
+		if (events[i]->status == status) {
+			if (internal_index == index) {
+				*bytes = sizeof(struct hab_event_record) +
+					be16_to_cpu(events[i]->hdr.len);
+				if (event)
+					memcpy(event, events[i], *bytes);
+				return HAB_STATUS_SUCCESS;
+			} else {
+				internal_index++;
+			}
+		}
+		i++;
+	}
+	return HAB_STATUS_FAILURE;
+}
+
+struct habv4_rvt hab_smc_ops = {
+	.header = { .tag = 0xdd },
+	.report_event = imx8_read_sram_events,
+	.report_status = hab_sip_report_status,
+};
 
 static const char *habv4_get_status_str(enum hab_status status)
 {
@@ -387,6 +477,32 @@ static void habv4_display_event(uint8_t *data, uint32_t len)
 	habv4_display_event_record((struct hab_event_record *)data);
 }
 
+#define RNG_FAIL_EVENT_SIZE 36
+static uint8_t habv4_known_rng_fail_events[][RNG_FAIL_EVENT_SIZE] = {
+	{ 0xdb, 0x00, 0x24, 0x42,  0x69, 0x30, 0xe1, 0x1d,
+	  0x00, 0x80, 0x00, 0x02,  0x40, 0x00, 0x36, 0x06,
+	  0x55, 0x55, 0x00, 0x03,  0x00, 0x00, 0x00, 0x00,
+	  0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00,
+	  0x00, 0x00, 0x00, 0x01 },
+	{ 0xdb, 0x00, 0x24, 0x42,  0x69, 0x30, 0xe1, 0x1d,
+	  0x00, 0x04, 0x00, 0x02,  0x40, 0x00, 0x36, 0x06,
+	  0x55, 0x55, 0x00, 0x03,  0x00, 0x00, 0x00, 0x00,
+	  0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00,
+	  0x00, 0x00, 0x00, 0x01 },
+};
+
+static bool is_known_rng_fail_event(const uint8_t *data, size_t len)
+{
+	int i;
+	for (i = 0; i < ARRAY_SIZE(habv4_known_rng_fail_events); i++) {
+		if (memcmp(data, habv4_known_rng_fail_events[i],
+			   min_t(size_t, len, RNG_FAIL_EVENT_SIZE)) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
 static int habv4_get_status(const struct habv4_rvt *rvt)
 {
 	uint8_t data[256];
@@ -413,15 +529,23 @@ static int habv4_get_status(const struct habv4_rvt *rvt)
 
 	len = sizeof(data);
 	while (rvt->report_event(HAB_STATUS_WARNING, index, data, &len) == HAB_STATUS_SUCCESS) {
-		pr_err("-------- HAB warning Event %d --------\n", index);
-		pr_err("event data:\n");
 
-		habv4_display_event(data, len);
+		/* suppress RNG self-test fail events if they can be handled in software */
+		if (IS_ENABLED(CONFIG_CRYPTO_DEV_FSL_CAAM_RNG_SELF_TEST) &&
+		    is_known_rng_fail_event(data, len)) {
+			pr_debug("RNG self-test failure detected, will run software self-test\n");
+		} else {
+			pr_err("-------- HAB warning Event %d --------\n", index);
+			pr_err("event data:\n");
+			habv4_display_event(data, len);
+		}
+
 		len = sizeof(data);
 		index++;
 	}
 
 	len = sizeof(data);
+	index = 0;
 	while (rvt->report_event(HAB_STATUS_FAILURE, index, data, &len) == HAB_STATUS_SUCCESS) {
 		pr_err("-------- HAB failure Event %d --------\n", index);
 		pr_err("event data:\n");
@@ -433,6 +557,7 @@ static int habv4_get_status(const struct habv4_rvt *rvt)
 
 	/* Check reason for stopping */
 	len = sizeof(data);
+	index = 0;
 	if (rvt->report_event(HAB_STATUS_ANY, index, NULL, &len) == HAB_STATUS_SUCCESS)
 		pr_err("ERROR: Recompile with larger event data buffer (at least %d bytes)\n\n", len);
 
@@ -460,9 +585,73 @@ int imx6_hab_get_status(void)
 	return -EINVAL;
 }
 
+static int imx8_hab_get_status(void)
+{
+	return habv4_get_status(&hab_smc_ops);
+}
+
+static int init_imx8_hab_get_status(void)
+{
+	if (!cpu_is_mx8mq())
+		/* can happen in multi-image builds and is not an error */
+		return 0;
+
+	/*
+	 * Nobody will check the return value if there were HAB errors, but the
+	 * initcall will fail spectaculously with a strange error message.
+	 */
+	imx8_hab_get_status();
+
+	return 0;
+}
+
+/*
+ *
+ *
+ *
+ */
+postmmu_initcall(init_imx8_hab_get_status);
+
+static int init_imx6_hab_get_status(void)
+{
+	if (!cpu_is_mx6())
+		/* can happen in multi-image builds and is not an error */
+		return 0;
+
+	/*
+	 * Nobody will check the return value if there were HAB errors, but the
+	 * initcall will fail spectaculously with a strange error message.
+	 */
+	imx6_hab_get_status();
+
+	return 0;
+}
+
+/*
+ * Need to run before MMU setup because i.MX6 ROM code is mapped near 0x0,
+ * which will no longer be accessible when the MMU sets the zero page to
+ * faulting.
+ */
+postconsole_initcall(init_imx6_hab_get_status);
+
 int imx28_hab_get_status(void)
 {
 	const struct habv4_rvt *rvt = (void *)HABV4_RVT_IMX28;
 
 	return habv4_get_status(rvt);
 }
+
+static int init_imx28_hab_get_status(void)
+{
+	if (!cpu_is_mx28())
+		/* can happen in multi-image builds and is not an error */
+		return 0;
+
+
+	/* nobody will check the return value if there were HAB errors, but the
+	 * initcall will fail spectaculously with a strange error message. */
+	imx28_hab_get_status();
+	return 0;
+}
+/* i.MX28 ROM code can be run after MMU setup to make use of caching */
+postmmu_initcall(init_imx28_hab_get_status);

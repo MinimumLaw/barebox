@@ -1,14 +1,5 @@
 if ARCH_AT91
 
-config HAVE_AT91_DBGU0
-	bool
-
-config HAVE_AT91_DBGU1
-	bool
-
-config HAVE_AT91_DBGU2
-	bool
-
 config HAVE_AT91_UTMI
 	bool
 
@@ -53,12 +44,38 @@ config SOC_AT91SAM9
 	select AT91SAM9_SMC
 	select CLOCKSOURCE_ATMEL_PIT
 	select PINCTRL
+	select HAVE_AT91_SMD
+	select HAVE_AT91_USB_CLK
+	select HAVE_AT91_UTMI
 
 config SOC_SAMA5
 	bool
 	select CPU_V7
+
+config SOC_SAMA5D2
+	bool
+	select SOC_SAMA5
 	select AT91SAM9_SMC
 	select CLOCKSOURCE_ATMEL_PIT
+
+config SOC_SAMA5D3
+	bool
+	select SOC_SAMA5
+	select AT91SAM9_SMC
+	select CLOCKSOURCE_ATMEL_PIT
+	select HAVE_AT91_SMD
+	select HAVE_AT91_USB_CLK
+	select HAVE_AT91_UTMI
+
+config SOC_SAMA5D4
+	bool
+	select SOC_SAMA5
+	select AT91SAM9_SMC
+	select CLOCKSOURCE_ATMEL_PIT
+	select HAVE_AT91_H32MX
+	select HAVE_AT91_SMD
+	select HAVE_AT91_USB_CLK
+	select HAVE_AT91_UTMI
 
 config ARCH_TEXT_BASE
 	hex
@@ -74,12 +91,6 @@ config HAVE_NAND_ATMEL_BUSWIDTH_16
 config HAVE_AT91_DATAFLASH_CARD
 	bool
 
-config AT91SAM9_RESET
-	bool
-
-config AT91SAM9G45_RESET
-	bool
-
 config HAVE_AT91_LOAD_BAREBOX_SRAM
 	bool
 
@@ -88,15 +99,14 @@ comment "Atmel AT91 System-on-Chip"
 config SOC_AT91RM9200
 	bool
 	select CPU_ARM920T
-	select HAVE_AT91_DBGU0
 	select HAS_AT91_ETHER
+	select HAVE_AT91_DBGU0
+	select HAVE_AT91_USB_CLK
 
 config SOC_AT91SAM9260
 	bool
 	select SOC_AT91SAM9
-	select HAVE_AT91_DBGU0
 	select HAS_MACB
-	select AT91SAM9_RESET
 	help
 	  Select this if you are using one of Atmel's AT91SAM9260, AT91SAM9XE
 	  or AT91SAM9G20 SoC.
@@ -104,25 +114,19 @@ config SOC_AT91SAM9260
 config SOC_AT91SAM9261
 	bool
 	select SOC_AT91SAM9
-	select HAVE_AT91_DBGU0
-	select AT91SAM9_RESET
 	help
 	  Select this if you are using one of Atmel's AT91SAM9261 or AT91SAM9G10 SoC.
 
 config SOC_AT91SAM9263
 	bool
 	select SOC_AT91SAM9
-	select HAVE_AT91_DBGU1
 	select HAS_MACB
-	select AT91SAM9_RESET
 	select HAVE_AT91_LOAD_BAREBOX_SRAM
 
 config SOC_AT91SAM9G45
 	bool
 	select SOC_AT91SAM9
-	select HAVE_AT91_DBGU1
 	select HAS_MACB
-	select AT91SAM9G45_RESET
 	help
 	  Select this if you are using one of Atmel's AT91SAM9G45 family SoC.
 	  This support covers AT91SAM9G45, AT91SAM9G46, AT91SAM9M10 and AT91SAM9M11.
@@ -130,12 +134,7 @@ config SOC_AT91SAM9G45
 config SOC_AT91SAM9X5
 	bool
 	select SOC_AT91SAM9
-	select HAVE_AT91_DBGU0
 	select HAS_MACB
-	select AT91SAM9G45_RESET
-	select HAVE_AT91_SMD
-	select HAVE_AT91_USB_CLK
-	select HAVE_AT91_UTMI
 	select COMMON_CLK_OF_PROVIDER
 	help
 	  Select this if you are using one of Atmel's AT91SAM9x5 family SoC.
@@ -147,8 +146,6 @@ config SOC_AT91SAM9X5
 config SOC_AT91SAM9N12
 	bool
 	select SOC_AT91SAM9
-	select HAVE_AT91_DBGU0
-	select AT91SAM9G45_RESET
 	help
 	  Select this if you are using Atmel's AT91SAM9N12 SoC.
 
@@ -200,18 +197,14 @@ config ARCH_AT91SAM9N12
 
 config ARCH_SAMA5D3
 	bool "SAMA5D3x"
-	select SOC_SAMA5
-	select HAVE_AT91_DBGU1
+	select SOC_SAMA5D3
 	select HAS_MACB
-	select AT91SAM9G45_RESET
 	select HAVE_MACH_ARM_HEAD
 
 config ARCH_SAMA5D4
 	bool "SAMA5D4"
-	select SOC_SAMA5
-	select HAVE_AT91_DBGU2
+	select SOC_SAMA5D4
 	select HAS_MACB
-	select AT91SAM9G45_RESET
 	select HAVE_MACH_ARM_HEAD
 
 endchoice
@@ -536,7 +529,6 @@ config MACH_AT91SAM9263EK
 	depends on ARCH_AT91SAM9263
 	select OFDEVICE
 	select COMMON_CLK_OF_PROVIDER
-	select HAVE_AT91_USB_CLK
 	select HAVE_NAND_ATMEL_BUSWIDTH_16
 	select HAVE_AT91_BOOTSTRAP
 	select AT91SAM926X_BOARD_INIT
@@ -549,6 +541,14 @@ config MACH_AT91SAM9X5EK
 	help
 	  Select this if you re using Atmel's AT91SAM9x5-EK Evaluation Kit.
 	  Supported chips are sam9g15, sam9g25, sam9x25, sam9g35 and sam9x35.
+
+config MACH_MICROCHIP_KSZ9477_EVB
+	bool "Microchip EVB-KSZ9477 Evaluation Kit"
+	depends on ARCH_SAMA5D3
+	select OFDEVICE
+	select COMMON_CLK_OF_PROVIDER
+	help
+	  Select this if you are using Microchip's EVB-KSZ9477 Evaluation Kit.
 
 endif
 

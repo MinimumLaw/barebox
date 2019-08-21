@@ -1,20 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * (C) Copyright 2010
  * Vipin Kumar, ST Micoelectronics, vipin.kumar@st.com.
- *
- * See file CREDITS for list of people who contributed to this
- * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  */
 
 /*
@@ -304,12 +291,14 @@ static int dwc_ether_send(struct eth_device *dev, void *packet, int length)
 
 	if (priv->enh_desc) {
 		desc_p->txrx_status |= DESC_ENH_TXSTS_TXFIRST | DESC_ENH_TXSTS_TXLAST;
+		desc_p->dmamac_cntl &= ~(DESC_ENH_TXCTRL_SIZE1MASK);
 		desc_p->dmamac_cntl |= (length << DESC_ENH_TXCTRL_SIZE1SHFT) &
 				       DESC_ENH_TXCTRL_SIZE1MASK;
 
 		desc_p->txrx_status &= ~(DESC_ENH_TXSTS_MSK);
 		desc_p->txrx_status |= DESC_ENH_TXSTS_OWNBYDMA;
 	} else {
+		desc_p->dmamac_cntl &= ~(DESC_TXCTRL_SIZE1MASK);
 		desc_p->dmamac_cntl |= ((length << DESC_TXCTRL_SIZE1SHFT) &
 				       DESC_TXCTRL_SIZE1MASK) | DESC_TXCTRL_TXLAST |
 				       DESC_TXCTRL_TXFIRST;
@@ -339,24 +328,48 @@ static int dwc_ether_rx(struct eth_device *dev)
 
 	u32 status = desc_p->txrx_status;
 	int length = 0;
+	int ret = 0;
 
 	/* Check  if the owner is the CPU */
 	if (status & DESC_RXSTS_OWNBYDMA)
 		return 0;
 
-	length = (status & DESC_RXSTS_FRMLENMSK) >>
-		 DESC_RXSTS_FRMLENSHFT;
+	if ((status & (DESC_RXSTS_ERROR | DESC_RXSTS_DAFILTERFAIL |
+		       DESC_RXSTS_SAFILTERFAIL)) ||
+	    (status & (DESC_RXSTS_RXIPC_GIANTFRAME |
+		       DESC_RXSTS_RXFRAMEETHER)) ==
+	    DESC_RXSTS_RXIPC_GIANTFRAME) {
+		/* Error in packet - discard it */
+		dev_warn(&dev->dev, "Rx error status (%x)\n",
+			 status & (DESC_RXSTS_DAFILTERFAIL |
+				   DESC_RXSTS_ERROR |
+				   DESC_RXSTS_RXTRUNCATED |
+				   DESC_RXSTS_SAFILTERFAIL |
+				   DESC_RXSTS_RXIPC_GIANTFRAME |
+				   DESC_RXSTS_RXDAMAGED |
+				   DESC_RXSTS_RXIPC_GIANT |
+				   DESC_RXSTS_RXCOLLISION |
+				   DESC_RXSTS_RXFRAMEETHER |
+				   DESC_RXSTS_RXWATCHDOG |
+				   DESC_RXSTS_RXMIIERROR |
+				   DESC_RXSTS_RXCRC));
+		ret = -EIO;
+	} else {
+		length = (status & DESC_RXSTS_FRMLENMSK) >>
+			 DESC_RXSTS_FRMLENSHFT;
+
+		dma_sync_single_for_cpu((unsigned long)desc_p->dmamac_addr,
+					length, DMA_FROM_DEVICE);
+		net_receive(dev, desc_p->dmamac_addr, length);
+		dma_sync_single_for_device((unsigned long)desc_p->dmamac_addr,
+					   length, DMA_FROM_DEVICE);
+		ret = length;
+	}
 
 	/*
 	 * Make the current descriptor valid again and go to
 	 * the next one
 	 */
-	dma_sync_single_for_cpu((unsigned long)desc_p->dmamac_addr, length,
-				DMA_FROM_DEVICE);
-	net_receive(dev, desc_p->dmamac_addr, length);
-	dma_sync_single_for_device((unsigned long)desc_p->dmamac_addr, length,
-				   DMA_FROM_DEVICE);
-
 	desc_p->txrx_status |= DESC_RXSTS_OWNBYDMA;
 
 	/* Test the wrap-around condition. */
@@ -365,7 +378,7 @@ static int dwc_ether_rx(struct eth_device *dev)
 
 	priv->rx_currdescnum = desc_num;
 
-	return length;
+	return ret;
 }
 
 static void dwc_ether_halt (struct eth_device *dev)
@@ -408,11 +421,21 @@ static void dwc_version(struct device_d *dev, u32 hwid)
 
 static int dwc_probe_dt(struct device_d *dev, struct dw_eth_dev *priv)
 {
+	struct device_node *child;
+
 	if (!IS_ENABLED(CONFIG_OFTREE))
 		return -ENODEV;
 
 	priv->phy_addr = -1;
 	priv->interface = of_get_phy_mode(dev->device_node);
+
+	/* Set MDIO bus device node, if present. */
+	for_each_child_of_node(dev->device_node, child) {
+		if (of_device_is_compatible(child, "snps,dwmac-mdio")) {
+			priv->miibus.dev.device_node = child;
+			break;
+		}
+	}
 
 	return 0;
 }

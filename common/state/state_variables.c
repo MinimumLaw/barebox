@@ -102,7 +102,7 @@ static int state_uint8_set(struct param_d *p, void *priv)
 static struct state_variable *state_uint8_create(struct state *state,
 						 const char *name,
 						 struct device_node *node,
-					      const struct variable_type *vtype)
+						 const struct variable_type *vtype)
 {
 	struct state_uint32 *su32;
 	struct param_d *param;
@@ -132,7 +132,7 @@ static struct state_variable *state_uint8_create(struct state *state,
 static struct state_variable *state_uint32_create(struct state *state,
 						  const char *name,
 						  struct device_node *node,
-					      const struct variable_type *vtype)
+						  const struct variable_type *vtype)
 {
 	struct state_uint32 *su32;
 	struct param_d *param;
@@ -223,7 +223,7 @@ static int state_enum32_import(struct state_variable *sv,
 static struct state_variable *state_enum32_create(struct state *state,
 						  const char *name,
 						  struct device_node *node,
-					      const struct variable_type *vtype)
+						  const struct variable_type *vtype)
 {
 	struct state_enum32 *enum32;
 	int ret, i, num_names;
@@ -307,7 +307,7 @@ static int state_mac_import(struct state_variable *sv, struct device_node *node)
 static struct state_variable *state_mac_create(struct state *state,
 					       const char *name,
 					       struct device_node *node,
-					      const struct variable_type *vtype)
+					       const struct variable_type *vtype)
 {
 	struct state_mac *mac;
 	int ret;
@@ -339,8 +339,7 @@ static int state_string_export(struct state_variable *var,
 	int ret = 0;
 
 	if (string->value_default) {
-		ret = of_set_property(node, "default", string->value_default,
-				      strlen(string->value_default) + 1, 1);
+		ret = of_property_write_string(node, "default", string->value_default);
 
 		if (ret)
 			return ret;
@@ -350,8 +349,7 @@ static int state_string_export(struct state_variable *var,
 		return 0;
 
 	if (string->value)
-		ret = of_set_property(node, "value", string->value,
-				      strlen(string->value) + 1, 1);
+		ret = of_property_write_string(node, "value", string->value);
 
 	return ret;
 }
@@ -411,7 +409,7 @@ static int state_string_get(struct param_d *p, void *priv)
 static struct state_variable *state_string_create(struct state *state,
 						  const char *name,
 						  struct device_node *node,
-					      const struct variable_type *vtype)
+						  const struct variable_type *vtype)
 {
 	struct state_string *string;
 	uint32_t start_size[2];
@@ -487,19 +485,6 @@ struct variable_type *state_find_type_by_name(const char *name)
 
 	for (i = 0; i < ARRAY_SIZE(types); i++) {
 		if (!strcmp(name, types[i].type_name)) {
-			return &types[i];
-		}
-	}
-
-	return NULL;
-}
-
-struct variable_type *state_find_type(const enum state_variable_type type)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(types); i++) {
-		if (type == types[i].type) {
 			return &types[i];
 		}
 	}

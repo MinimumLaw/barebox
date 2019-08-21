@@ -9,10 +9,13 @@
 #include <io.h>
 #include <init.h>
 #include <restart.h>
+#include <linux/clk.h>
 
 #include <mach/hardware.h>
 #include <mach/cpu.h>
 #include <mach/at91_dbgu.h>
+#include <mach/at91_rstc.h>
+#include <mach/board.h>
 
 #include "generic.h"
 
@@ -22,26 +25,15 @@ void __initdata (*at91_boot_soc)(void);
 struct at91_socinfo at91_soc_initdata;
 EXPORT_SYMBOL(at91_soc_initdata);
 
-void __init at91rm9200_set_type(int type)
-{
-	if (type == ARCH_REVISON_9200_PQFP)
-		at91_soc_initdata.subtype = AT91_SOC_RM9200_PQFP;
-	else
-		at91_soc_initdata.subtype = AT91_SOC_RM9200_BGA;
-
-	pr_info("AT91: filled in soc subtype: %s\n",
-		at91_get_soc_subtype(&at91_soc_initdata));
-}
-
 static void __init soc_detect(u32 dbgu_base)
 {
 	u32 cidr, socid;
 
-	cidr = __raw_readl(dbgu_base + AT91_DBGU_CIDR);
+	cidr = readl(dbgu_base + AT91_DBGU_CIDR);
 	socid = cidr & ~AT91_CIDR_VERSION;
 
 	/* sub version of soc */
-	at91_soc_initdata.exid = __raw_readl(dbgu_base + AT91_DBGU_EXID);
+	at91_soc_initdata.exid = readl(dbgu_base + AT91_DBGU_EXID);
 
 	switch (socid) {
 	case ARCH_ID_AT91RM9200:
@@ -281,9 +273,6 @@ static int at91_detect(void)
 }
 postcore_initcall(at91_detect);
 
-void restart_sam9(struct restart_handler *rst);
-void restart_sam9g45(struct restart_handler *rst);
-
 static int at91_soc_device(void)
 {
 	struct device_d *dev;
@@ -292,11 +281,29 @@ static int at91_soc_device(void)
 	dev_add_param_fixed(dev, "name", (char*)at91_get_soc_type(&at91_soc_initdata));
 	dev_add_param_fixed(dev, "subname", (char*)at91_get_soc_subtype(&at91_soc_initdata));
 
-	if (IS_ENABLED(CONFIG_AT91SAM9_RESET))
-		restart_handler_register_fn(restart_sam9);
-	if (IS_ENABLED(CONFIG_AT91SAM9G45_RESET))
-		restart_handler_register_fn(restart_sam9g45);
-
 	return 0;
 }
 coredevice_initcall(at91_soc_device);
+
+void at91sam_phy_reset(void __iomem *rstc_base)
+{
+	unsigned long rstc;
+	struct clk *clk = clk_get(NULL, "macb_clk");
+
+	clk_enable(clk);
+
+	rstc = readl(rstc_base + AT91_RSTC_MR) & AT91_RSTC_ERSTL;
+
+	/* Need to reset PHY -> 500ms reset */
+	writel(AT91_RSTC_KEY | (AT91_RSTC_ERSTL & (0x0d << 8)) | AT91_RSTC_URSTEN,
+		rstc_base + AT91_RSTC_MR);
+
+	writel(AT91_RSTC_KEY | AT91_RSTC_EXTRST, rstc_base + AT91_RSTC_CR);
+
+	/* Wait for end hardware reset */
+	while (!(readl(rstc_base + AT91_RSTC_SR) & AT91_RSTC_NRSTL))
+		;
+
+	/* Restore NRST value */
+	writel(AT91_RSTC_KEY | (rstc) | AT91_RSTC_URSTEN, rstc_base + AT91_RSTC_MR);
+}

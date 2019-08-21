@@ -93,7 +93,7 @@ static struct fs_device_d *get_fsdevice_by_path(const char *path);
 
 LIST_HEAD(fs_device_list);
 
-struct vfsmount *mntget(struct vfsmount *mnt)
+static struct vfsmount *mntget(struct vfsmount *mnt)
 {
 	if (!mnt)
 		return NULL;
@@ -103,7 +103,7 @@ struct vfsmount *mntget(struct vfsmount *mnt)
 	return mnt;
 }
 
-void mntput(struct vfsmount *mnt)
+static void mntput(struct vfsmount *mnt)
 {
 	if (!mnt)
 		return;
@@ -111,7 +111,7 @@ void mntput(struct vfsmount *mnt)
 	mnt->ref--;
 }
 
-struct vfsmount *lookup_mnt(struct path *path)
+static struct vfsmount *lookup_mnt(struct path *path)
 {
 	struct fs_device_d *fsdev;
 
@@ -171,17 +171,17 @@ static void put_file(FILE *f)
 	dput(f->dentry);
 }
 
-static int check_fd(int fd)
+static FILE *fd_to_file(int fd)
 {
 	if (fd < 0 || fd >= MAX_FILES || !files[fd].in_use) {
 		errno = EBADF;
-		return -errno;
+		return ERR_PTR(-errno);
 	}
 
-	return 0;
+	return &files[fd];
 }
 
-int create(struct dentry *dir, struct dentry *dentry)
+static int create(struct dentry *dir, struct dentry *dentry)
 {
 	struct inode *inode;
 
@@ -205,19 +205,22 @@ EXPORT_SYMBOL(creat);
 int ftruncate(int fd, loff_t length)
 {
 	struct fs_driver_d *fsdrv;
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	int ret;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
 
-	f = &files[fd];
+	if (f->size == FILE_SIZE_STREAM)
+		return 0;
 
 	fsdrv = f->fsdev->driver;
 
 	ret = fsdrv->truncate(&f->fsdev->dev, f, length);
-	if (ret)
+	if (ret) {
+		errno = -ret;
 		return ret;
+	}
 
 	f->size = length;
 
@@ -227,13 +230,11 @@ int ftruncate(int fd, loff_t length)
 int ioctl(int fd, int request, void *buf)
 {
 	struct fs_driver_d *fsdrv;
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	int ret;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
-
-	f = &files[fd];
 
 	fsdrv = f->fsdev->driver;
 
@@ -274,13 +275,11 @@ out:
 ssize_t pread(int fd, void *buf, size_t count, loff_t offset)
 {
 	loff_t pos;
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	int ret;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
-
-	f = &files[fd];
 
 	pos = f->pos;
 	f->pos = offset;
@@ -293,13 +292,11 @@ EXPORT_SYMBOL(pread);
 
 ssize_t read(int fd, void *buf, size_t count)
 {
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	int ret;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
-
-	f = &files[fd];
 
 	ret = __read(f, buf, count);
 
@@ -343,13 +340,11 @@ out:
 ssize_t pwrite(int fd, const void *buf, size_t count, loff_t offset)
 {
 	loff_t pos;
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	int ret;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
-
-	f = &files[fd];
 
 	pos = f->pos;
 	f->pos = offset;
@@ -362,13 +357,11 @@ EXPORT_SYMBOL(pwrite);
 
 ssize_t write(int fd, const void *buf, size_t count)
 {
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	int ret;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
-
-	f = &files[fd];
 
 	ret = __write(f, buf, count);
 
@@ -381,13 +374,11 @@ EXPORT_SYMBOL(write);
 int flush(int fd)
 {
 	struct fs_driver_d *fsdrv;
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	int ret;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
-
-	f = &files[fd];
 
 	fsdrv = f->fsdev->driver;
 	if (fsdrv->flush)
@@ -401,52 +392,46 @@ int flush(int fd)
 	return ret;
 }
 
-loff_t lseek(int fildes, loff_t offset, int whence)
+loff_t lseek(int fd, loff_t offset, int whence)
 {
 	struct fs_driver_d *fsdrv;
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	loff_t pos;
 	int ret;
 
-	if (check_fd(fildes))
+	if (IS_ERR(f))
 		return -1;
 
-	f = &files[fildes];
 	fsdrv = f->fsdev->driver;
-	if (!fsdrv->lseek) {
-		ret = -ENOSYS;
-		goto out;
-	}
 
 	ret = -EINVAL;
 
 	switch (whence) {
 	case SEEK_SET:
-		if (f->size != FILE_SIZE_STREAM && offset > f->size)
-			goto out;
-		if (IS_ERR_VALUE(offset))
-			goto out;
-		pos = offset;
+		pos = 0;
 		break;
 	case SEEK_CUR:
-		if (f->size != FILE_SIZE_STREAM && offset + f->pos > f->size)
-			goto out;
-		pos = f->pos + offset;
+		pos = f->pos;
 		break;
 	case SEEK_END:
-		if (offset > 0)
-			goto out;
-		pos = f->size + offset;
+		pos = f->size;
 		break;
 	default:
 		goto out;
 	}
 
-	pos = fsdrv->lseek(&f->fsdev->dev, f, pos);
-	if (IS_ERR_VALUE(pos)) {
-		errno = -pos;
-		return -1;
+	pos += offset;
+
+	if (f->size != FILE_SIZE_STREAM && (pos < 0 || pos > f->size))
+		goto out;
+
+	if (fsdrv->lseek) {
+		ret = fsdrv->lseek(&f->fsdev->dev, f, pos);
+		if (ret < 0)
+			goto out;
 	}
+
+	f->pos = pos;
 
 	return pos;
 
@@ -461,12 +446,11 @@ EXPORT_SYMBOL(lseek);
 int erase(int fd, loff_t count, loff_t offset)
 {
 	struct fs_driver_d *fsdrv;
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	int ret;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
-	f = &files[fd];
 	if (offset >= f->size)
 		return 0;
 	if (count == ERASE_SIZE_ALL || count > f->size - offset)
@@ -490,12 +474,11 @@ EXPORT_SYMBOL(erase);
 int protect(int fd, size_t count, loff_t offset, int prot)
 {
 	struct fs_driver_d *fsdrv;
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	int ret;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
-	f = &files[fd];
 	if (offset >= f->size)
 		return 0;
 	if (count > f->size - offset)
@@ -532,14 +515,12 @@ int protect_file(const char *file, int prot)
 void *memmap(int fd, int flags)
 {
 	struct fs_driver_d *fsdrv;
-	FILE *f;
-	void *retp = (void *)-1;
+	FILE *f = fd_to_file(fd);
+	void *retp = MAP_FAILED;
 	int ret;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return retp;
-
-	f = &files[fd];
 
 	fsdrv = f->fsdev->driver;
 
@@ -558,13 +539,11 @@ EXPORT_SYMBOL(memmap);
 int close(int fd)
 {
 	struct fs_driver_d *fsdrv;
-	FILE *f;
+	FILE *f = fd_to_file(fd);
 	int ret = 0;
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
-
-	f = &files[fd];
 
 	fsdrv = f->fsdev->driver;
 
@@ -609,7 +588,7 @@ static int fs_probe(struct device_d *dev)
 	return 0;
 }
 
-void dentry_kill(struct dentry *dentry)
+static void dentry_kill(struct dentry *dentry)
 {
 	if (dentry->d_inode)
 		iput(dentry->d_inode);
@@ -622,7 +601,7 @@ void dentry_kill(struct dentry *dentry)
 	free(dentry);
 }
 
-int dentry_delete_subtree(struct super_block *sb, struct dentry *parent)
+static int dentry_delete_subtree(struct super_block *sb, struct dentry *parent)
 {
 	struct dentry *dentry, *tmp;
 
@@ -809,9 +788,6 @@ static int fillonedir(struct dir_context *ctx, const char *name, int namlen,
 	struct readdir_entry *entry;
 
 	entry = xzalloc(sizeof(*entry));
-	if (!entry)
-		return -ENOMEM;
-
 	memcpy(entry->d.d_name, name, namlen);
 	list_add_tail(&entry->list, &rd->dir->entries);
 
@@ -850,15 +826,10 @@ static void stat_inode(struct inode *inode, struct stat *s)
 
 int fstat(int fd, struct stat *s)
 {
-	FILE *f;
-	struct fs_device_d *fsdev;
+	FILE *f = fd_to_file(fd);
 
-	if (check_fd(fd))
+	if (IS_ERR(f))
 		return -errno;
-
-	f = &files[fd];
-
-	fsdev = f->fsdev;
 
 	stat_inode(f->f_inode, s);
 
@@ -1141,6 +1112,12 @@ const struct qstr slash_name = QSTR_INIT("/", 1);
 void d_set_d_op(struct dentry *dentry, const struct dentry_operations *op)
 {
 	dentry->d_op = op;
+
+	if (!op)
+		return;
+
+	if (op->d_revalidate)
+		dentry->d_flags |= DCACHE_OP_REVALIDATE;
 }
 
 /**
@@ -1152,7 +1129,7 @@ void d_set_d_op(struct dentry *dentry, const struct dentry_operations *op)
  * available. On a success the dentry is returned. The name passed in is
  * copied and the copy passed in may be reused after this call.
  */
-struct dentry *__d_alloc(struct super_block *sb, const struct qstr *name)
+static struct dentry *__d_alloc(struct super_block *sb, const struct qstr *name)
 {
 	struct dentry *dentry;
 
@@ -1192,7 +1169,7 @@ struct dentry *__d_alloc(struct super_block *sb, const struct qstr *name)
  * available. On a success the dentry is returned. The name passed in is
  * copied and the copy passed in may be reused after this call.
  */
-struct dentry *d_alloc(struct dentry *parent, const struct qstr *name)
+static struct dentry *d_alloc(struct dentry *parent, const struct qstr *name)
 {
 	struct dentry *dentry = __d_alloc(parent->d_sb, name);
 	if (!dentry)
@@ -1265,7 +1242,7 @@ static bool d_same_name(const struct dentry *dentry,
 	return strncmp(dentry->d_name.name, name->name, name->len) == 0;
 }
 
-struct dentry *d_lookup(const struct dentry *parent, const struct qstr *name)
+static struct dentry *d_lookup(const struct dentry *parent, const struct qstr *name)
 {
 	struct dentry *dentry;
 
@@ -1281,8 +1258,37 @@ struct dentry *d_lookup(const struct dentry *parent, const struct qstr *name)
 	return NULL;
 }
 
-void d_invalidate(struct dentry *dentry)
+static void d_invalidate(struct dentry *dentry)
 {
+}
+
+static inline int d_revalidate(struct dentry *dentry, unsigned int flags)
+{
+	if (unlikely(dentry->d_flags & DCACHE_OP_REVALIDATE))
+		return dentry->d_op->d_revalidate(dentry, flags);
+	else
+		return 1;
+}
+
+/*
+ * This looks up the name in dcache and possibly revalidates the found dentry.
+ * NULL is returned if the dentry does not exist in the cache.
+ */
+static struct dentry *lookup_dcache(const struct qstr *name,
+				    struct dentry *dir,
+				    unsigned int flags)
+{
+	struct dentry *dentry = d_lookup(dir, name);
+	if (dentry) {
+		int error = d_revalidate(dentry, flags);
+		if (unlikely(error <= 0)) {
+			if (!error)
+				d_invalidate(dentry);
+			dput(dentry);
+			return ERR_PTR(error);
+		}
+	}
+	return dentry;
 }
 
 static inline void __d_clear_type_and_inode(struct dentry *dentry)
@@ -1358,13 +1364,13 @@ static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)
 	p->total_link_count = 0;
 }
 
-void path_get(const struct path *path)
+static void path_get(const struct path *path)
 {
 	mntget(path->mnt);
 	dget(path->dentry);
 }
 
-void path_put(const struct path *path)
+static void path_put(const struct path *path)
 {
 	dput(path->dentry);
 	mntput(path->mnt);
@@ -1491,12 +1497,12 @@ static struct dentry *__lookup_hash(const struct qstr *name,
 {
 	struct dentry *dentry;
 	struct dentry *old;
-	struct inode *dir = base->d_inode;
+	struct inode *dir;
 
 	if (!base)
 		return ERR_PTR(-ENOENT);
 
-	dentry = d_lookup(base, name);
+	dentry = lookup_dcache(name, base, flags);
 	if (dentry)
 		return dentry;
 
@@ -1504,6 +1510,7 @@ static struct dentry *__lookup_hash(const struct qstr *name,
 	if (unlikely(!dentry))
 		return ERR_PTR(-ENOMEM);
 
+	dir = base->d_inode;
 	old = dir->i_op->lookup(dir, dentry, flags);
 	if (IS_ERR(old)) {
 		dput(dentry);
@@ -1547,7 +1554,7 @@ static int lookup_fast(struct nameidata *nd, struct path *path)
  * Return 1 if we went up a level and 0 if we were already at the
  * root.
  */
-int follow_up(struct path *path)
+static int follow_up(struct path *path)
 {
 	struct vfsmount *parent, *mnt = path->mnt;
 	struct dentry *mountpoint;
@@ -1739,7 +1746,7 @@ static int component_len(const char *name, char separator)
 	return len;
 }
 
-struct filename *getname(const char *filename)
+static struct filename *getname(const char *filename)
 {
 	struct filename *result;
 
@@ -1758,7 +1765,7 @@ struct filename *getname(const char *filename)
 	return result;
 }
 
-void putname(struct filename *name)
+static void putname(struct filename *name)
 {
 	BUG_ON(name->refcnt <= 0);
 
@@ -2105,7 +2112,7 @@ static struct fs_device_d *get_fsdevice_by_path(const char *pathname)
 	return fsdev;
 }
 
-int vfs_rmdir(struct inode *dir, struct dentry *dentry)
+static int vfs_rmdir(struct inode *dir, struct dentry *dentry)
 {
 	int error;
 
@@ -2129,7 +2136,7 @@ out:
 	return error;
 }
 
-int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
+static int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	int error;
 
@@ -2388,7 +2395,7 @@ out:
 }
 EXPORT_SYMBOL(unlink);
 
-int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname)
+static int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname)
 {
 	if (!dir->i_op->symlink)
 		return -EPERM;
@@ -2492,8 +2499,6 @@ EXPORT_SYMBOL(opendir);
 
 int closedir(DIR *dir)
 {
-	int ret;
-
 	if (!dir) {
 		errno = EBADF;
 		return -EBADF;
@@ -2501,7 +2506,7 @@ int closedir(DIR *dir)
 
 	release_dir(dir);
 
-	return ret;
+	return 0;
 }
 EXPORT_SYMBOL(closedir);
 
@@ -2757,7 +2762,7 @@ int mount(const char *device, const char *fsname, const char *pathname,
 
 	fsdev = xzalloc(sizeof(struct fs_device_d));
 	fsdev->backingstore = xstrdup(device);
-	safe_strncpy(fsdev->dev.name, fsname, MAX_DRIVER_NAME);
+	dev_set_name(&fsdev->dev, fsname);
 	fsdev->dev.id = get_free_deviceid(fsdev->dev.name);
 	fsdev->dev.bus = &fs_bus;
 	fsdev->options = xstrdup(fsoptions);

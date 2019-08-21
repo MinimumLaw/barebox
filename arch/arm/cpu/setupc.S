@@ -15,24 +15,20 @@ ENTRY(setup_c)
 	push	{r4, r5}
 	mov	r5, lr
 	bl	get_runtime_offset
-	adds	r4, r0, #0
+	subs	r4, r0, #0
 	beq	1f			/* skip memcpy if already at correct address */
 	ldr	r0,=_text
 	ldr	r2,=__bss_start
 	sub	r2, r2, r0
-	sub	r1, r0, r4
-	bl	memcpy			/* memcpy(_text, _text - offset, __bss_start - _text) */
+	add	r1, r0, r4
+	bl	memcpy			/* memcpy(_text, _text + offset, __bss_start - _text) */
 1:	ldr	r0, =__bss_start
 	mov	r1, #0
 	ldr	r2, =__bss_stop
 	sub	r2, r2, r0
 	bl	memset			/* clear bss */
-#ifdef CONFIG_MMU
-	bl	arm_early_mmu_cache_flush
-#endif
-	mov	r0, #0
-	mcr	p15, 0, r0, c7, c5, 0	/* flush icache */
-	add	lr, r5, r4		/* adjust return address to new location */
+	bl	sync_caches_for_execution
+	sub	lr, r5, r4		/* adjust return address to new location */
 	pop	{r4, r5}
 	mov	pc, lr
 ENDPROC(setup_c)
@@ -73,11 +69,7 @@ ENTRY(relocate_to_adr)
 
 	bl	memcpy			/* copy binary */
 
-#ifdef CONFIG_MMU
-	bl	arm_early_mmu_cache_flush
-#endif
-	mov	r0,#0
-	mcr	p15, 0, r0, c7, c5, 0	/* flush icache */
+	bl	sync_caches_for_execution
 
 	ldr	r0,=1f
 	sub	r0, r0, r8

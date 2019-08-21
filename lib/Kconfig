@@ -57,13 +57,16 @@ config XZ_DEC_SPARC
 config REED_SOLOMON
 	bool
 
+config BASE64
+	bool "include base64 encode/decode support"
+
 config GENERIC_FIND_NEXT_BIT
 	def_bool n
 
 config PROCESS_ESCAPE_SEQUENCE
 	def_bool n
 
-source lib/lzo/Kconfig
+source "lib/lzo/Kconfig"
 
 config BCH
 	bool
@@ -79,7 +82,7 @@ config QSORT
 
 config XYMODEM
 	bool
-	select CRC16
+	select CRC_ITU_T
 
 config LIBSCAN
 	bool
@@ -93,8 +96,12 @@ config IMAGE_SPARSE
 config STMP_DEVICE
 	bool
 
+config FSL_QE_FIRMWARE
+	select CRC32
+	bool
+
 config RATP
-	select CRC16
+	select CRC_ITU_T
 	bool "RATP protocol support"
 	help
 	  Reliable Asynchronous Transfer Protocol (RATP) is a protocol for reliably
@@ -118,13 +125,20 @@ config CRC_CCITT
 	  the kernel tree does. Such modules that use library CRC-CCITT
 	  functions require M here.
 
-source lib/gui/Kconfig
+config CRC8
+        bool "CRC8 function"
+	help
+	  This option provides CRC8 function. Drivers may select this
+	  when they need to do cyclic redundancy check according CRC8
+	  algorithm. Module will be called crc8.
 
-source lib/fonts/Kconfig
+source "lib/gui/Kconfig"
 
-source lib/logo/Kconfig
+source "lib/fonts/Kconfig"
 
-source lib/bootstrap/Kconfig
+source "lib/logo/Kconfig"
+
+source "lib/bootstrap/Kconfig"
 
 config PRINTF_UUID
 	bool
@@ -137,5 +151,15 @@ config GENERIC_LIB_ASHRDI3
 
 config GENERIC_LIB_LSHRDI3
 	bool
+
+config GENERIC_LIB_MULDI3
+	bool
+
+config NLS
+        bool "Native language support"
+
+config BLOBGEN
+	select BASE64
+	bool "include blob encode/decode support"
 
 endmenu

@@ -26,16 +26,15 @@
 
 #include <unistd.h>
 #include <ctype.h>
-#include <sys/io.h>
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
 #include <libusb.h>
 #include <getopt.h>
-#include <endian.h>
 #include <arpa/inet.h>
 #include <linux/kernel.h>
 
+#include "../compiler.h"
 #include "imx.h"
 
 #define get_min(a, b) (((a) < (b)) ? (a) : (b))
@@ -182,6 +181,13 @@ static const struct mach_id imx_ids[] = {
 		.vid = 0x15a2,
 		.pid = 0x0076,
 		.name = "i.MX7S",
+		.header_type = HDR_MX53,
+		.mode = MODE_HID,
+		.max_transfer = 1024,
+	}, {
+		.vid = 0x1fc9,
+		.pid = 0x012b,
+		.name = "i.MX8M",
 		.header_type = HDR_MX53,
 		.mode = MODE_HID,
 		.max_transfer = 1024,

@@ -13,7 +13,7 @@
 
 #include <common.h>
 #include <asm/psci.h>
-#include <asm/arm-smccc.h>
+#include <linux/arm-smccc.h>
 #include <asm/secure.h>
 #include <asm/system.h>
 #include <restart.h>
@@ -138,8 +138,8 @@ static unsigned long psci_system_off(void)
 {
 	psci_printf("%s\n", __func__);
 
-	if (psci_ops->system_reset)
-		psci_ops->system_reset();
+	if (psci_ops->system_off)
+		psci_ops->system_off();
 
 	while(1);
 
@@ -155,6 +155,10 @@ static unsigned long psci_system_reset(void)
 
 	restart_machine();
 }
+
+/* Avoid missing prototype warning, called from assembly */
+void psci_entry(u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, u32 r6,
+		struct arm_smccc_res *res);
 
 void psci_entry(u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, u32 r6,
 		struct arm_smccc_res *res)
@@ -186,27 +190,15 @@ void psci_entry(u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, u32 r6,
 	}
 }
 
-static int of_psci_fixup(struct device_node *root, void *unused)
-{
-	struct device_node *psci;
-	int ret;
+/* Avoid missing prototype warning, called from assembly */
+int psci_cpu_entry_c(void);
 
+static int of_psci_do_fixup(struct device_node *root, void *unused)
+{
 	if (bootm_arm_security_state() < ARM_STATE_NONSECURE)
 		return 0;
 
-	psci = of_create_node(root, "/psci");
-	if (!psci)
-		return -EINVAL;
-
-	ret = of_property_write_string(psci, "compatible", "arm,psci-1.0");
-	if (ret)
-		return ret;
-
-	ret = of_property_write_string(psci, "method", "smc");
-	if (ret)
-		return ret;
-
-	return 0;
+	return of_psci_fixup(root, ARM_PSCI_VER_1_0);
 }
 
 int psci_cpu_entry_c(void)
@@ -232,7 +224,7 @@ int psci_cpu_entry_c(void)
 
 static int armv7_psci_init(void)
 {
-	return of_register_fixup(of_psci_fixup, NULL);
+	return of_register_fixup(of_psci_do_fixup, NULL);
 }
 device_initcall(armv7_psci_init);
 

@@ -1,8 +1,11 @@
 extra-$(CONFIG_GENERIC_LINKER_SCRIPT) += barebox.lds
 obj-$(CONFIG_CSRC_R4K_LIB) += csrc-r4k.o
 obj-y += cpu-probe.o
+lwl-y += end.o
 obj-y += traps.o
 obj-y += genex.o
+obj-y += reloc.o
+obj-y += sections.o
 obj-y += shutdown.o
 obj-y += dma-default.o
 

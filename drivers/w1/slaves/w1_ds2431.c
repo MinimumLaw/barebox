@@ -60,7 +60,7 @@ static inline size_t ds2431_fix_count(loff_t off, size_t count, size_t size)
  *
  * count must not exceed W1_F2D_READ_MAXLEN.
  */
-int ds2431_readblock(struct w1_device *dev, int off, int count, char *buf)
+static int ds2431_readblock(struct w1_device *dev, int off, int count, char *buf)
 {
 	struct w1_bus *bus = dev->bus;
 	u8 wrbuf[3];
@@ -260,7 +260,6 @@ out_up:
 static struct cdev_operations ds2431_ops = {
 	.read	= ds2431_cdev_read,
 	.write	= ds2431_cdev_write,
-	.lseek	= dev_lseek_default,
 };
 
 static int ds2431_probe(struct w1_device *dev)

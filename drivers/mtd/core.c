@@ -141,15 +141,28 @@ static struct mtd_erase_region_info *mtd_find_erase_region(struct mtd_info *mtd,
 	return NULL;
 }
 
+static loff_t __mtd_erase_round(loff_t x, uint32_t esize, int up)
+{
+	uint64_t dividend = x;
+	uint32_t mod = do_div(dividend, esize);
+	if (mod == 0)
+		return x;
+	if (up)
+		x += esize;
+	return x - mod;
+}
+#define mtd_erase_round_up(x, esize)	__mtd_erase_round(x, esize, 1)
+#define mtd_erase_round_down(x, esize)	__mtd_erase_round(x, esize, 0)
+
 static int mtd_erase_align(struct mtd_info *mtd, loff_t *count, loff_t *offset)
 {
 	struct mtd_erase_region_info *e;
 	loff_t ofs;
 
 	if (mtd->numeraseregions == 0) {
-		ofs = *offset & ~(loff_t)(mtd->erasesize - 1);
-		*count += (*offset - ofs);
-		*count = ALIGN(*count, mtd->erasesize);
+		ofs = mtd_erase_round_down(*offset, mtd->erasesize);
+		*count += *offset - ofs;
+		*count = mtd_erase_round_up(*count, mtd->erasesize);
 		*offset = ofs;
 		return 0;
 	}
@@ -158,14 +171,14 @@ static int mtd_erase_align(struct mtd_info *mtd, loff_t *count, loff_t *offset)
 	if (!e)
 		return -EINVAL;
 
-	ofs = *offset & ~(e->erasesize - 1);
-	*count += (*offset - ofs);
+	ofs = mtd_erase_round_down(*offset, e->erasesize);
+	*count += *offset - ofs;
 
 	e = mtd_find_erase_region(mtd, *offset + *count);
 	if (!e)
 		return -EINVAL;
 
-	*count = ALIGN(*count, e->erasesize);
+	*count = mtd_erase_round_up(*count, e->erasesize);
 	*offset = ofs;
 
 	return 0;
@@ -177,6 +190,9 @@ static int mtd_op_erase(struct cdev *cdev, loff_t count, loff_t offset)
 	struct erase_info erase;
 	loff_t addr;
 	int ret;
+
+	if (mtd->flags & MTD_NO_ERASE)
+		return -EOPNOTSUPP;
 
 	ret = mtd_erase_align(mtd, &count, &offset);
 	if (ret)
@@ -446,7 +462,6 @@ static struct cdev_operations mtd_ops = {
 	.protect = mtd_op_protect,
 #endif
 	.ioctl  = mtd_ioctl,
-	.lseek  = dev_lseek_default,
 };
 
 static int mtd_partition_set(struct param_d *p, void *priv)
@@ -607,7 +622,7 @@ int add_mtd_device(struct mtd_info *mtd, const char *devname, int device_id)
 
 	if (!devname)
 		devname = "mtd";
-	strcpy(mtd->class_dev.name, devname);
+	dev_set_name(&mtd->class_dev, devname);
 	mtd->class_dev.id = device_id;
 	if (mtd->parent)
 		mtd->class_dev.parent = mtd->parent;

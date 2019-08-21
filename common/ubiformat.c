@@ -31,7 +31,6 @@
 #include <common.h>
 #include <fs.h>
 #include <fcntl.h>
-#include <errno.h>
 #include <crc.h>
 #include <stdlib.h>
 #include <clock.h>
@@ -188,6 +187,7 @@ static int flash_image(struct ubiformat_args *args, struct mtd_info *mtd,
 		       const struct ubigen_info *ui, struct ubi_scan_info *si)
 {
 	int fd = 0, img_ebs, eb, written_ebs = 0, ret = -1, eb_cnt;
+	int skip_data_read = 0;
 	off_t st_size;
 	char *buf = NULL;
 	uint64_t lastprint = 0;
@@ -235,6 +235,9 @@ static int flash_image(struct ubiformat_args *args, struct mtd_info *mtd,
 		int err, new_len;
 		long long ec;
 
+		if (si->ec[eb] == EB_BAD)
+			continue;
+
 		if (!args->quiet && !args->verbose) {
 			if (is_timeout(lastprint, 300 * MSECOND) ||
 			    eb == eb_cnt - 1) {
@@ -243,9 +246,6 @@ static int flash_image(struct ubiformat_args *args, struct mtd_info *mtd,
 				lastprint = get_time_ns();
 			}
 		}
-
-		if (si->ec[eb] == EB_BAD)
-			continue;
 
 		if (args->verbose) {
 			normsg_cont("eraseblock %d: erase", eb);
@@ -257,7 +257,7 @@ static int flash_image(struct ubiformat_args *args, struct mtd_info *mtd,
 				printf("\n");
 			sys_errmsg("failed to erase eraseblock %d", eb);
 
-			if (err != EIO)
+			if (err != -EIO)
 				goto out_close;
 
 			if (mark_bad(args, mtd, si, eb))
@@ -266,17 +266,20 @@ static int flash_image(struct ubiformat_args *args, struct mtd_info *mtd,
 			continue;
 		}
 
-		if (args->image) {
-			err = read_full(fd, buf, mtd->erasesize);
-			if (err < 0) {
-				sys_errmsg("failed to read eraseblock %d from image",
-					   written_ebs);
-				goto out_close;
+		if (!skip_data_read) {
+			if (args->image) {
+				err = read_full(fd, buf, mtd->erasesize);
+				if (err < 0) {
+					sys_errmsg("failed to read eraseblock %d from image",
+						written_ebs);
+					goto out_close;
+				}
+			} else {
+				memcpy(buf, inbuf, mtd->erasesize);
+				inbuf += mtd->erasesize;
 			}
-		} else {
-			memcpy(buf, inbuf, mtd->erasesize);
-			inbuf += mtd->erasesize;
 		}
+		skip_data_read = 0;
 
 		if (args->override_ec)
 			ec = args->ec;
@@ -306,14 +309,24 @@ static int flash_image(struct ubiformat_args *args, struct mtd_info *mtd,
 		if (err) {
 			sys_errmsg("cannot write eraseblock %d", eb);
 
-			if (err != EIO)
+			if (err != -EIO)
 				goto out_close;
 
 			err = mtd_peb_torture(mtd, eb);
-			if (err < 0 && err != -EIO)
+			if (err == -EIO) {
+				err = mark_bad(args, mtd, si, eb);
+				if (err)
+					goto out_close;
+			} else if (err) {
 				goto out_close;
-			if (err == -EIO && consecutive_bad_check(args, eb))
-				goto out_close;
+			}
+
+			/*
+			 * We have to make sure that we do not read next block
+			 * of data from the input image or stdin - we have to
+			 * write buf first instead.
+			 */
+                        skip_data_read = 1;
 
 			continue;
 		}
@@ -357,6 +370,9 @@ static int format(struct ubiformat_args *args, struct mtd_info *mtd,
 	for (eb = start_eb; eb < eb_cnt; eb++) {
 		long long ec;
 
+		if (si->ec[eb] == EB_BAD)
+			continue;
+
 		if (!args->quiet && !args->verbose) {
 			if (is_timeout(lastprint, 300 * MSECOND) ||
 			    eb == eb_cnt - 1) {
@@ -365,9 +381,6 @@ static int format(struct ubiformat_args *args, struct mtd_info *mtd,
 				lastprint = get_time_ns();
 			}
 		}
-
-		if (si->ec[eb] == EB_BAD)
-			continue;
 
 		if (args->override_ec)
 			ec = args->ec;
@@ -387,7 +400,7 @@ static int format(struct ubiformat_args *args, struct mtd_info *mtd,
 				printf("\n");
 
 			sys_errmsg("failed to erase eraseblock %d", eb);
-			if (err != EIO)
+			if (err != -EIO)
 				goto out_free;
 
 			if (mark_bad(args, mtd, si, eb))
@@ -419,17 +432,20 @@ static int format(struct ubiformat_args *args, struct mtd_info *mtd,
 			sys_errmsg("cannot write EC header (%d bytes buffer) to eraseblock %d",
 				   write_size, eb);
 
-			if (errno != EIO) {
+			if (err != -EIO) {
 				if (args->subpage_size != mtd->writesize)
 					normsg("may be sub-page size is incorrect?");
 				goto out_free;
 			}
 
 			err = mtd_peb_torture(mtd, eb);
-			if (err < 0 && err != -EIO)
+			if (err == -EIO) {
+				err = mark_bad(args, mtd, si, eb);
+				if (err)
+					goto out_free;
+			} else if (err) {
 				goto out_free;
-			if (err == -EIO && consecutive_bad_check(args, eb))
-				goto out_free;
+			}
 
 			continue;
 
@@ -481,8 +497,10 @@ int ubiformat(struct mtd_info *mtd, struct ubiformat_args *args)
 	if (!args->ubi_ver)
 		args->ubi_ver = 1;
 
-	if (!args->image_seq)
-		args->image_seq = rand();
+	if (!args->image_seq) {
+		srand(get_time_ns());
+		args->image_seq = random32();
+	}
 
 	if (!is_power_of_2(mtd->writesize)) {
 		errmsg("min. I/O size is %d, but should be power of 2",
@@ -710,8 +728,10 @@ int ubiformat_write(struct mtd_info *mtd, const void *buf, size_t count,
 		    loff_t offset)
 {
 	int writesize = mtd->writesize >> mtd->subpage_sft;
-	size_t retlen;
 	int ret;
+	int peb = 0;
+	int n_skip_blocks = mtd_div_by_eb(offset, mtd);
+	int offset_in_peb = mtd_mod_by_eb(offset, mtd);
 
 	if (offset & (mtd->writesize - 1))
 		return -EINVAL;
@@ -719,16 +739,32 @@ int ubiformat_write(struct mtd_info *mtd, const void *buf, size_t count,
 	if (count & (mtd->writesize - 1))
 		return -EINVAL;
 
-	while (count) {
-		size_t now;
+	/* Seek forward to the first PEB we actually want to write */
+	while (1) {
+		ret = mtd_skip_bad(mtd, &peb);
+		if (ret)
+			return ret;
 
-		now = ALIGN(offset, mtd->erasesize) - offset;
+		if (!n_skip_blocks)
+			break;
+
+		peb++;
+		n_skip_blocks--;
+	}
+
+	while (count) {
+		size_t now = mtd->erasesize - offset_in_peb;
+
 		if (now > count)
 			now = count;
 
-		if (!now) {
+		if (!offset_in_peb) {
 			const struct ubi_ec_hdr *ec = buf;
 			const struct ubi_vid_hdr *vid;
+
+			ret = mtd_skip_bad(mtd, &peb);
+			if (ret)
+				return ret;
 
 			if (be32_to_cpu(ec->magic) != UBI_EC_HDR_MAGIC) {
 				pr_err("bad UBI magic %#08x, should be %#08x",
@@ -736,10 +772,11 @@ int ubiformat_write(struct mtd_info *mtd, const void *buf, size_t count,
 				return -EINVAL;
 			}
 
-			/* skip ec header */
-			offset += writesize;
+			/* skip ec header in both flash and image */
+			offset_in_peb = writesize;
 			buf += writesize;
 			count -= writesize;
+			now -= writesize;
 
 			if (!count)
 				break;
@@ -750,19 +787,16 @@ int ubiformat_write(struct mtd_info *mtd, const void *buf, size_t count,
 				       be32_to_cpu(vid->magic), UBI_VID_HDR_MAGIC);
 				return -EINVAL;
 			}
-
-			continue;
 		}
 
-		ret = mtd_write(mtd, offset, now, &retlen, buf);
+		ret = mtd_peb_write(mtd, buf, peb, offset_in_peb, now);
 		if (ret < 0)
 			return ret;
-		if (retlen != now)
-			return -EIO;
 
 		buf += now;
 		count -= now;
-		offset += now;
+		offset_in_peb = 0;
+		peb++;
 	}
 
 	return 0;

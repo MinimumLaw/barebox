@@ -407,7 +407,7 @@ static void e1000_eeprom_uses_microwire(struct e1000_eeprom_info *eeprom,
 	eeprom->read = e1000_read_eeprom_microwire;
 }
 
-size_t e1000_igb_get_flash_size(struct e1000_hw *hw)
+static size_t e1000_igb_get_flash_size(struct e1000_hw *hw)
 {
 	struct device_node *node =
 		hw->pdev->dev.device_node;
@@ -883,7 +883,7 @@ static int e1000_flash_mode_erase_chunk(struct e1000_hw *hw, loff_t offset,
 	ret = e1000_poll_reg(hw, E1000_FLSWCTL,
 			     E1000_FLSWCTL_DONE | E1000_FLSWCTL_FLBUSY,
 			     E1000_FLSWCTL_DONE,
-			     10 * SECOND);
+			     40 * SECOND);
 	if (ret < 0) {
 		dev_err(hw->dev,
 			"Timeout waiting for FLSWCTL.DONE to be set (erase)\n");
@@ -1000,7 +1000,8 @@ int32_t e1000_read_eeprom(struct e1000_hw *hw, uint16_t offset,
 		(words > eeprom->word_size - offset) ||
 		(words == 0)) {
 		dev_dbg(hw->dev, "\"words\" parameter out of bounds."
-			"Words = %d, size = %d\n", offset, eeprom->word_size);
+			"Words = %d, size = %d\n", offset,
+			(int)eeprom->word_size);
 		return -E1000_ERR_EEPROM;
 	}
 
@@ -1325,7 +1326,6 @@ exit:
 static struct cdev_operations e1000_invm_ops = {
 	.read	= e1000_invm_cdev_read,
 	.write	= e1000_invm_cdev_write,
-	.lseek	= dev_lseek_default,
 };
 
 static ssize_t e1000_eeprom_cdev_read(struct cdev *cdev, void *buf,
@@ -1350,7 +1350,6 @@ static ssize_t e1000_eeprom_cdev_read(struct cdev *cdev, void *buf,
 
 static struct cdev_operations e1000_eeprom_ops = {
 	.read = e1000_eeprom_cdev_read,
-	.lseek = dev_lseek_default,
 };
 
 static int e1000_mtd_read_or_write(bool read,
@@ -1504,7 +1503,7 @@ static int e1000_mtd_unlock(struct mtd_info *mtd, loff_t ofs, size_t len)
 	return e1000_mtd_sr_rmw(mtd, SR_BPALL, 0x0);
 }
 
-int e1000_register_invm(struct e1000_hw *hw)
+static int e1000_register_invm(struct e1000_hw *hw)
 {
 	int ret;
 	u16 word;
@@ -1529,7 +1528,7 @@ int e1000_register_invm(struct e1000_hw *hw)
 	if (ret < 0)
 		return ret;
 
-	strcpy(hw->invm.dev.name, "invm");
+	dev_set_name(&hw->invm.dev, "invm");
 	hw->invm.dev.id = hw->dev->id;
 	hw->invm.dev.parent = hw->dev;
 	ret = register_device(&hw->invm.dev);

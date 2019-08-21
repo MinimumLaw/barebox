@@ -36,13 +36,15 @@ USB bootloader mode by the SoC microcode:
 1. Connect the Kindle to your host computer with a USB cable.
 2. Power down the device by holding the power button until the power LED goes
    dark (about 10 seconds).
-4. Hold the power button, and hold down a device-specific special key:
+3. Hold the power button, and hold down a device-specific special key:
+
    * the fiveway down button on the model D01100
    * the home button on model D01200
+
 4. Then release the power button, but still hold the special key.
 5. A new USB device named ``NS Blank CODEX`` should appear on your host computer.
    You can now release the special button.
-7. Finally, upload barebox to the Kindle by using:
+6. Finally, upload barebox to the Kindle by using:
 
    .. code-block:: console
 
@@ -66,5 +68,5 @@ e.g. for the D01100 just write the imx-header and the application section:
 .. code-block:: console
 
         $ loady -t usbserial
-        $ memcpy -b -s barebox-kindle-d01100.img -d /dev/disk0.boot0.imx_header 1024 0 2048
-        $ memcpy -b -s barebox-kindle-d01100.img -d /dev/disk0.boot0.self 4096 0 253952
+        $ memcpy -b -s barebox-kindle-d01100.img -d /dev/mmc2.boot0.imx_header 1024 0 2048
+        $ memcpy -b -s barebox-kindle-d01100.img -d /dev/mmc2.boot0.self 4096 0 253952

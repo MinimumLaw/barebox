@@ -24,6 +24,7 @@
 #include <asm/barebox-arm-head.h>
 #include <asm-generic/memory_layout.h>
 #include <asm/sections.h>
+#include <asm/secure.h>
 #include <asm/unaligned.h>
 #include <asm/cache.h>
 #include <asm/mmu.h>
@@ -33,8 +34,11 @@
 
 #include <debug_ll.h>
 
+#include "entry.h"
+
 unsigned long arm_stack_top;
 static unsigned long arm_barebox_size;
+static unsigned long arm_endmem;
 static void *barebox_boarddata;
 static unsigned long barebox_boarddata_size;
 
@@ -128,6 +132,12 @@ unsigned long arm_mem_ramoops_get(void)
 }
 EXPORT_SYMBOL_GPL(arm_mem_ramoops_get);
 
+unsigned long arm_mem_endmem_get(void)
+{
+	return arm_endmem;
+}
+EXPORT_SYMBOL_GPL(arm_mem_endmem_get);
+
 static int barebox_memory_areas_init(void)
 {
 	if(barebox_boarddata)
@@ -147,6 +157,10 @@ __noreturn void barebox_non_pbl_start(unsigned long membase,
 	unsigned long barebox_base = arm_mem_barebox_image(membase,
 							   endmem,
 							   barebox_size);
+
+	if (IS_ENABLED(CONFIG_CPU_V7))
+		armv7_hyp_install();
+
 	if (IS_ENABLED(CONFIG_RELOCATABLE))
 		relocate_to_adr(barebox_base);
 
@@ -154,8 +168,11 @@ __noreturn void barebox_non_pbl_start(unsigned long membase,
 
 	barrier();
 
+	pbl_barebox_break();
+
 	pr_debug("memory at 0x%08lx, size 0x%08lx\n", membase, memsize);
 
+	arm_endmem = endmem;
 	arm_stack_top = arm_mem_stack_top(membase, endmem);
 	arm_barebox_size = barebox_size;
 	malloc_end = barebox_base;
@@ -219,6 +236,9 @@ __noreturn void barebox_non_pbl_start(unsigned long membase,
 
 	mem_malloc_init((void *)malloc_start, (void *)malloc_end - 1);
 
+	if (IS_ENABLED(CONFIG_BOOTM_OPTEE))
+		of_add_reserve_entry(endmem - OPTEE_SIZE, endmem - 1);
+
 	pr_debug("starting barebox...\n");
 
 	start_barebox();
@@ -226,12 +246,16 @@ __noreturn void barebox_non_pbl_start(unsigned long membase,
 
 #ifndef CONFIG_PBL_IMAGE
 
+void start(void);
+
 void NAKED __section(.text_entry) start(void)
 {
 	barebox_arm_head();
 }
 
 #else
+
+void start(unsigned long membase, unsigned long memsize, void *boarddata);
 /*
  * First function in the uncompressed image. We get here from
  * the pbl. The stack already has been set up by the pbl.

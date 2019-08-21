@@ -16,7 +16,6 @@
  */
 
 #include <common.h>
-#include <init.h>
 #include <driver.h>
 #include <xfuncs.h>
 #include <errno.h>
@@ -113,7 +112,6 @@ static ssize_t mc_write(struct cdev *cdev, const void *_buf, size_t count, loff_
 }
 
 static struct cdev_operations mc_fops = {
-	.lseek	= dev_lseek_default,
 	.read	= mc_read,
 	.write	= mc_write,
 };
@@ -139,11 +137,4 @@ static struct driver_d mc_driver = {
 	.name  = DRIVERNAME,
 	.probe = mc_probe,
 };
-
-static int mc_init(void)
-{
-        i2c_driver_register(&mc_driver);
-        return 0;
-}
-
-device_initcall(mc_init);
+device_i2c_driver(mc_driver);

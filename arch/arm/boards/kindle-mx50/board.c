@@ -80,7 +80,7 @@ BAREBOX_MAGICVAR_NAMED(global_atags_revision16, global.board.revision16,
 /* The Kindle Kernel expects two custom ATAGs, ATAG_REVISION16 describing
  * the board and ATAG_SERIAL16 to identify the individual device.
  */
-struct tag *kindle_mx50_append_atags(struct tag *params)
+static struct tag *kindle_mx50_append_atags(struct tag *params)
 {
 	params = setup_16char_tag(params, ATAG_SERIAL16,
 				get_env_16char_tag("global.board.serial16"));
@@ -98,7 +98,7 @@ static void kindle_rev_init(void)
 	int ret;
 	size_t size;
 	void *buf;
-	const char userdata[] = "/dev/disk0.boot0.userdata";
+	const char userdata[] = "/dev/mmc2.boot0.userdata";
 	ret = read_file_2(userdata, &size, &buf, 128);
 	if (ret && ret != -EFBIG) {
 		pr_err("Could not read board info from %s\n", userdata);

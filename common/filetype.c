@@ -37,7 +37,7 @@ struct filetype_str {
 };
 
 static const struct filetype_str filetype_str[] = {
-	[filetype_unknown] = { "unknown", "unkown" },
+	[filetype_unknown] = { "unknown", "unknown" },
 	[filetype_arm_zimage] = { "ARM Linux zImage", "arm-zimage" },
 	[filetype_lzo_compressed] = { "LZO compressed", "lzo" },
 	[filetype_lz4_compressed] = { "LZ4 compressed", "lz4" },
@@ -75,6 +75,11 @@ static const struct filetype_str filetype_str[] = {
 	[filetype_elf] = { "ELF", "elf" },
 	[filetype_imx_image_v1] = { "i.MX image (v1)", "imx-image-v1" },
 	[filetype_imx_image_v2] = { "i.MX image (v2)", "imx-image-v2" },
+	[filetype_layerscape_image] = { "Layerscape image", "layerscape-PBL" },
+	[filetype_layerscape_qspi_image] = { "Layerscape QSPI image", "layerscape-qspi-PBL" },
+	[filetype_ubootvar] = { "U-Boot environmemnt variable data",
+				"ubootvar" },
+	[filetype_stm32_image_v1] = { "STM32 image (v1)", "stm32-image-v1" },
 };
 
 const char *file_type_to_string(enum filetype f)
@@ -329,6 +334,11 @@ enum filetype file_detect_type(const void *_buf, size_t bufsize)
 	if (is_sparse_image(_buf))
 		return filetype_android_sparse;
 
+	if (buf[0] == 0x55aa55aa && buf[1] == 0x0001ee01)
+		return filetype_layerscape_image;
+	if (buf[0] == 0x01ee0100 && buf[1] == 0xaa55aa55)
+		return filetype_layerscape_qspi_image;
+
 	if (bufsize < 64)
 		return filetype_unknown;
 
@@ -345,6 +355,14 @@ enum filetype file_detect_type(const void *_buf, size_t bufsize)
 
 	if (buf8[0] == 'M' && buf8[1] == 'Z')
 		return filetype_exe;
+
+	if (bufsize < 256)
+		return filetype_unknown;
+
+	if (strncmp(buf8, "STM\x32", 4) == 0) {
+		if (buf8[74] == 0x01)
+			return filetype_stm32_image_v1;
+	}
 
 	if (bufsize < 512)
 		return filetype_unknown;
@@ -383,7 +401,7 @@ enum filetype file_name_detect_type_offset(const char *filename, loff_t pos)
 
 	fd = open_and_lseek(filename, O_RDONLY, pos);
 	if (fd < 0)
-		return fd;
+		goto out;
 
 	buf = xzalloc(FILE_TYPE_SAFE_BUFSIZE);
 
@@ -396,7 +414,7 @@ enum filetype file_name_detect_type_offset(const char *filename, loff_t pos)
 err_out:
 	close(fd);
 	free(buf);
-
+out:
 	return type;
 }
 
@@ -416,6 +434,11 @@ enum filetype cdev_detect_type(const char *name)
 	if (!cdev)
 		return type;
 
+	if (cdev->filetype != filetype_unknown) {
+		type = cdev->filetype;
+		goto cdev_close;
+	}
+
 	buf = xzalloc(FILE_TYPE_SAFE_BUFSIZE);
 	ret = cdev_read(cdev, buf, FILE_TYPE_SAFE_BUFSIZE, 0, 0);
 	if (ret < 0)
@@ -425,6 +448,7 @@ enum filetype cdev_detect_type(const char *name)
 
 err_out:
 	free(buf);
+cdev_close:
 	cdev_close(cdev);
 	return type;
 }

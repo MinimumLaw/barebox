@@ -33,3 +33,4 @@ config CRYPTO_DEV_FSL_CAAM_RNG
 	default y
 	help
 	  Selecting this will register the SEC4 hardware rng.
+

@@ -22,8 +22,8 @@
 #include <linux/list.h>
 #include <linux/ioport.h>
 #include <of.h>
+#include <filetype.h>
 
-#define MAX_DRIVER_NAME		32
 #define FORMAT_DRIVER_NAME_ID	"%s%d"
 
 #include <param.h>
@@ -38,10 +38,19 @@ struct platform_device_id {
 
 /** @brief Describes a particular device present in the system */
 struct device_d {
-	/*! This member (and 'type' described below) is used to match with a
-	 * driver. This is a descriptive name and could be MPC5XXX_ether or
-	 * imx_serial. */
-	char name[MAX_DRIVER_NAME];
+	/*! This member (and 'type' described below) is used to match
+	 * with a driver. This is a descriptive name and could be
+	 * MPC5XXX_ether or imx_serial. Unless absolutely necessary,
+	 * should not be modified directly and dev_set_name() should
+	 * be used instead.
+	 */
+	char *name;
+
+	/*! This member is used to store device's unique name as
+	 *  obtained by calling dev_id(). Internal field, do not
+	 *  access it directly.
+	  */
+	char *unique_name;
 	/*! The id is used to uniquely identify a device in the system. The id
 	 * will show up under /dev/ as the device's name. Usually this is
 	 * something like eth0 or nor0. */
@@ -170,12 +179,17 @@ int get_free_deviceid(const char *name_template);
 
 char *deviceid_from_spec_str(const char *str, char **endp);
 
-extern const char *dev_id(const struct device_d *dev);
+static inline const char *dev_id(const struct device_d *dev)
+{
+	return (dev->id != DEVICE_ID_SINGLE) ? dev->unique_name : dev->name;
+}
 
 static inline const char *dev_name(const struct device_d *dev)
 {
 	return dev_id(dev);
 }
+
+int dev_set_name(struct device_d *dev, const char *fmt, ...);
 
 /*
  * get resource 'num' for a device
@@ -188,10 +202,6 @@ struct resource *dev_get_resource(struct device_d *dev, unsigned long type,
 struct resource *dev_get_resource_by_name(struct device_d *dev,
 					  unsigned long type,
 					  const char *name);
-/*
- * get register base 'name' for a device
- */
-void *dev_get_mem_region_by_name(struct device_d *dev, const char *name);
 
 /*
  * exlusively request register base 'name' for a device
@@ -343,18 +353,9 @@ struct cdev;
 /* These are used by drivers which work with direct memory accesses */
 ssize_t mem_read(struct cdev *cdev, void *buf, size_t count, loff_t offset, ulong flags);
 ssize_t mem_write(struct cdev *cdev, const void *buf, size_t count, loff_t offset, ulong flags);
-int mem_memmap(struct cdev *cdev, void **map, int flags);
-
-/* Use this if you have nothing to do in your drivers probe function */
-int dummy_probe(struct device_d *);
 
 int generic_memmap_ro(struct cdev *dev, void **map, int flags);
 int generic_memmap_rw(struct cdev *dev, void **map, int flags);
-
-static inline loff_t dev_lseek_default(struct cdev *cdev, loff_t ofs)
-{
-	return ofs;
-}
 
 static inline int dev_open_default(struct device_d *dev, struct filep *f)
 {
@@ -419,6 +420,8 @@ int platform_driver_register(struct driver_d *drv);
 	register_driver_macro(device,platform,drv)
 #define console_platform_driver(drv)	\
 	register_driver_macro(console,platform,drv)
+#define late_platform_driver(drv)	\
+	register_driver_macro(late,platform,drv)
 
 int platform_device_register(struct device_d *new_device);
 
@@ -430,7 +433,7 @@ struct cdev_operations {
 	ssize_t (*write)(struct cdev*, const void* buf, size_t count, loff_t offset, ulong flags);
 
 	int (*ioctl)(struct cdev*, int, void *);
-	loff_t (*lseek)(struct cdev*, loff_t);
+	int (*lseek)(struct cdev*, loff_t);
 	int (*open)(struct cdev*, unsigned long flags);
 	int (*close)(struct cdev*);
 	int (*flush)(struct cdev*);
@@ -464,6 +467,7 @@ struct cdev {
 	struct list_head link_entry, links;
 	struct list_head partition_entry, partitions;
 	struct cdev *master;
+	enum filetype filetype;
 };
 
 int devfs_create(struct cdev *);
@@ -489,8 +493,8 @@ int cdev_erase(struct cdev *cdev, loff_t count, loff_t offset);
 
 #define DEVFS_PARTITION_FIXED		(1U << 0)
 #define DEVFS_PARTITION_READONLY	(1U << 1)
-#define DEVFS_IS_CHARACTER_DEV		(1 << 3)
-#define DEVFS_PARTITION_FROM_TABLE	(1 << 4)
+#define DEVFS_IS_CHARACTER_DEV		(1U << 3)
+#define DEVFS_PARTITION_FROM_TABLE	(1U << 4)
 
 struct cdev *devfs_add_partition(const char *devname, loff_t offset,
 		loff_t size, unsigned int flags, const char *name);

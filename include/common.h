@@ -68,7 +68,9 @@ int	readline	(const char *prompt, char *buf, int len);
 long	get_ram_size  (volatile long *, long);
 
 /* common/console.c */
-int	ctrlc (void);
+int ctrlc(void);
+int arch_ctrlc(void);
+void ctrlc_handled(void);
 
 #ifdef ARCH_HAS_STACK_DUMP
 void dump_stack(void);
@@ -91,6 +93,16 @@ unsigned long long strtoull_suffix(const char *str, char **endp, int base);
  */
 extern int (*barebox_main)(void);
 
+enum autoboot_state {
+	AUTOBOOT_UNKNOWN,
+	AUTOBOOT_ABORT,
+	AUTOBOOT_MENU,
+	AUTOBOOT_BOOT,
+};
+
+void set_autoboot_state(enum autoboot_state autoboot);
+enum autoboot_state do_autoboot_countdown(void);
+
 void __noreturn start_barebox(void);
 void shutdown_barebox(void);
 
@@ -112,18 +124,11 @@ void shutdown_barebox(void);
 #define PAGE_ALIGN(s)	ALIGN(s, PAGE_SIZE)
 #define PAGE_ALIGN_DOWN(x) ALIGN_DOWN(x, PAGE_SIZE)
 
-int memory_display(const void *addr, loff_t offs, unsigned nbytes, int size, int swab);
-
-#define DUMP_PREFIX_OFFSET 0
-static inline void print_hex_dump(const char *level, const char *prefix_str,
-		int prefix_type, int rowsize, int groupsize,
-		const void *buf, size_t len, bool ascii)
-{
-	memory_display(buf, 0, len, 4, 0);
-}
-
 int mem_parse_options(int argc, char *argv[], char *optstr, int *mode,
 		char **sourcefile, char **destfile, int *swab);
+int memcpy_parse_options(int argc, char *argv[], int *sourcefd,
+			 int *destfd, loff_t *count,
+			 int rwsize, int destmode);
 #define RW_BUF_SIZE	(unsigned)4096
 
 extern const char version_string[];

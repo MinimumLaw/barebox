@@ -92,12 +92,14 @@ static int bootscript_boot(struct bootentry *entry, int verbose, int dryrun)
 		return 0;
 	}
 
+	globalvar_add_simple("linux.bootargs.dyn.ip", NULL);
+	globalvar_add_simple("linux.bootargs.dyn.root", NULL);
 	globalvar_set_match("linux.bootargs.dyn.", "");
 
 	ret = run_command(bs->scriptpath);
 	if (ret) {
-		printf("Running %s failed\n", bs->scriptpath);
-		goto out;
+		pr_err("Running script '%s' failed: %s\n", bs->scriptpath, strerror(-ret));
+		return ret;
 	}
 
 	bootm_data_init_defaults(&data);
@@ -107,11 +109,7 @@ static int bootscript_boot(struct bootentry *entry, int verbose, int dryrun)
 	if (dryrun)
 		data.dryrun = dryrun;
 
-	ret = bootm_boot(&data);
-	if (ret)
-		pr_err("Booting '%s' failed: %s\n", basename(bs->scriptpath), strerror(-ret));
-out:
-	return ret;
+	return bootm_boot(&data);
 }
 
 static unsigned int boot_watchdog_timeout;
@@ -121,12 +119,22 @@ void boot_set_watchdog_timeout(unsigned int timeout)
 	boot_watchdog_timeout = timeout;
 }
 
-static int init_boot_watchdog_timeout(void)
+static char *global_boot_default;
+static char *global_user;
+
+static int init_boot(void)
 {
-	return globalvar_add_simple_int("boot.watchdog_timeout",
-			&boot_watchdog_timeout, "%u");
+	global_boot_default = xstrdup("net");
+	globalvar_add_simple_string("boot.default", &global_boot_default);
+	globalvar_add_simple_int("boot.watchdog_timeout",
+				 &boot_watchdog_timeout, "%u");
+	globalvar_add_simple("linux.bootargs.base", NULL);
+	global_user = xstrdup("none");
+	globalvar_add_simple_string("user", &global_user);
+
+	return 0;
 }
-late_initcall(init_boot_watchdog_timeout);
+late_initcall(init_boot);
 
 BAREBOX_MAGICVAR_NAMED(global_watchdog_timeout, global.boot.watchdog_timeout,
 		"Watchdog enable timeout in seconds before booting");
@@ -135,7 +143,7 @@ int boot_entry(struct bootentry *be, int verbose, int dryrun)
 {
 	int ret;
 
-	printf("booting '%s'\n", be->title);
+	printf("Booting entry '%s'\n", be->title);
 
 	if (IS_ENABLED(CONFIG_WATCHDOG) && boot_watchdog_timeout) {
 		ret = watchdog_set_timeout(boot_watchdog_timeout);
@@ -144,9 +152,8 @@ int boot_entry(struct bootentry *be, int verbose, int dryrun)
 	}
 
 	ret = be->boot(be, verbose, dryrun);
-
 	if (ret)
-		printf("booting '%s' failed: %s\n", be->title, strerror(-ret));
+		pr_err("Booting entry '%s' failed\n", be->title);
 
 	return ret;
 }
@@ -154,11 +161,8 @@ int boot_entry(struct bootentry *be, int verbose, int dryrun)
 static void bootsource_action(struct menu *m, struct menu_entry *me)
 {
 	struct bootentry *be = container_of(me, struct bootentry, me);
-	int ret;
 
-	ret = boot_entry(be, 0, 0);
-	if (ret)
-		printf("Booting failed with: %s\n", strerror(-ret));
+	boot_entry(be, 0, 0);
 
 	printf("Press any key to continue\n");
 

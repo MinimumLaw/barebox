@@ -36,7 +36,11 @@ int pwrite_full(int fd, const void *buf, size_t size, loff_t offset)
 
 	while (size) {
 		now = pwrite(fd, buf, size, offset);
-		if (now <= 0)
+		if (now == 0) {
+			errno = ENOSPC;
+			return -1;
+		}
+		if (now < 0)
 			return now;
 		size -= now;
 		buf += now;
@@ -60,7 +64,11 @@ int write_full(int fd, const void *buf, size_t size)
 
 	while (size) {
 		now = write(fd, buf, size);
-		if (now <= 0)
+		if (now == 0) {
+			errno = ENOSPC;
+			return -1;
+		}
+		if (now < 0)
 			return now;
 		size -= now;
 		buf += now;
@@ -80,20 +88,18 @@ int read_full(int fd, void *buf, size_t size)
 {
 	size_t insize = size;
 	int now;
-	int total = 0;
 
 	while (size) {
 		now = read(fd, buf, size);
 		if (now == 0)
-			return total;
+			break;
 		if (now < 0)
 			return now;
-		total += now;
 		size -= now;
 		buf += now;
 	}
 
-	return insize;
+	return insize - size;
 }
 EXPORT_SYMBOL(read_full);
 
@@ -185,7 +191,11 @@ again:
 		goto again;
 	}
 
-	buf = xzalloc(read_size + 1);
+	buf = calloc(read_size + 1, 1);
+	if (!buf) {
+		ret = -ENOMEM;
+		goto err_out;
+	}
 
 	fd = open(filename, O_RDONLY);
 	if (fd < 0) {
@@ -319,10 +329,9 @@ int copy_file(const char *src, const char *dst, int verbose)
 {
 	char *rw_buf = NULL;
 	int srcfd = 0, dstfd = 0;
-	int r, w;
+	int r;
 	int ret = 1, err1 = 0;
 	int mode;
-	void *buf;
 	int total = 0;
 	struct stat srcstat, dststat;
 
@@ -366,17 +375,12 @@ int copy_file(const char *src, const char *dst, int verbose)
 		if (!r)
 			break;
 
-		buf = rw_buf;
-		while (r) {
-			w = write(dstfd, buf, r);
-			if (w < 0) {
-				perror("write");
-				goto out;
-			}
-			buf += w;
-			r -= w;
-			total += w;
+		if (write_full(dstfd, rw_buf, r) < 0) {
+			perror("write");
+			goto out;
 		}
+
+		total += r;
 
 		if (verbose) {
 			if (srcstat.st_size && srcstat.st_size != FILESIZE_MAX)
@@ -518,12 +522,12 @@ err_out1:
  * @mode:	The file open mode
  * @pos:	The position to lseek to
  *
- * Return: If successful this function returns a positive filedescriptor
- *         number, otherwise a negative error code is returned
+ * Return: If successful this function returns a positive
+ *         filedescriptor number, otherwise -1 is returned
  */
 int open_and_lseek(const char *filename, int mode, loff_t pos)
 {
-	int fd, ret;
+	int fd;
 
 	fd = open(filename, mode);
 	if (fd < 0) {
@@ -537,29 +541,26 @@ int open_and_lseek(const char *filename, int mode, loff_t pos)
 	if (mode & (O_WRONLY | O_RDWR)) {
 		struct stat s;
 
-		ret = fstat(fd, &s);
-		if (ret) {
+		if (fstat(fd, &s)) {
 			perror("fstat");
-			return ret;
+			goto out;
 		}
 
-		if (s.st_size < pos) {
-			ret = ftruncate(fd, pos);
-			if (ret) {
-				perror("ftruncate");
-				return ret;
-			}
+		if (s.st_size < pos && ftruncate(fd, pos)) {
+			perror("ftruncate");
+			goto out;
 		}
 	}
 
-	ret = lseek(fd, pos, SEEK_SET);
-	if (ret == -1) {
+	if (lseek(fd, pos, SEEK_SET) != pos) {
 		perror("lseek");
-		close(fd);
-		return -errno;
+		goto out;
 	}
 
 	return fd;
+out:
+	close(fd);
+	return -1;
 }
 
 /**

@@ -43,8 +43,6 @@ struct ramfs_inode {
 	char *symlink;
 	ulong mode;
 
-	struct handle_d *handle;
-
 	ulong size;
 	struct ramfs_chunk *data;
 
@@ -101,8 +99,6 @@ static struct inode *ramfs_get_inode(struct super_block *sb, const struct inode 
 	return inode;
 }
 
-static int chunks = 0;
-
 static struct ramfs_chunk *ramfs_get_chunk(void)
 {
 	struct ramfs_chunk *data = malloc(sizeof(struct ramfs_chunk));
@@ -115,7 +111,6 @@ static struct ramfs_chunk *ramfs_get_chunk(void)
 		return NULL;
 	}
 	data->next = NULL;
-	chunks++;
 
 	return data;
 }
@@ -124,7 +119,6 @@ static void ramfs_put_chunk(struct ramfs_chunk *data)
 {
 	free(data->data);
 	free(data);
-	chunks--;
 }
 
 /* ---------------------------------------------------------------*/
@@ -137,10 +131,8 @@ ramfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode)
 	if (!inode)
 		return -ENOSPC;
 
-	if (inode) {
-		d_instantiate(dentry, inode);
-		dget(dentry);   /* Extra count - pin the dentry in core */
-	}
+	d_instantiate(dentry, inode);
+	dget(dentry);   /* Extra count - pin the dentry in core */
 
 	return 0;
 }
@@ -347,13 +339,7 @@ static int ramfs_write(struct device_d *_dev, FILE *f, const void *buf, size_t i
 	return insize;
 }
 
-static loff_t ramfs_lseek(struct device_d *dev, FILE *f, loff_t pos)
-{
-	f->pos = pos;
-	return f->pos;
-}
-
-static int ramfs_truncate(struct device_d *dev, FILE *f, ulong size)
+static int ramfs_truncate(struct device_d *dev, FILE *f, loff_t size)
 {
 	struct inode *inode = f->f_inode;
 	struct ramfs_inode *node = to_ramfs_inode(inode);
@@ -409,8 +395,6 @@ static struct inode *ramfs_alloc_inode(struct super_block *sb)
 	struct ramfs_inode *node;
 
 	node = xzalloc(sizeof(*node));
-	if (!node)
-		return NULL;
 
 	return &node->inode;
 }
@@ -448,7 +432,6 @@ static void ramfs_remove(struct device_d *dev)
 static struct fs_driver_d ramfs_driver = {
 	.read      = ramfs_read,
 	.write     = ramfs_write,
-	.lseek     = ramfs_lseek,
 	.truncate  = ramfs_truncate,
 	.flags     = FS_DRIVER_NO_DEV,
 	.drv = {

@@ -394,14 +394,7 @@ static int ubifs_read(struct device_d *_dev, FILE *f, void *buf, size_t insize)
 	return insize;
 }
 
-static loff_t ubifs_lseek(struct device_d *dev, FILE *f, loff_t pos)
-{
-	f->pos = pos;
-
-	return pos;
-}
-
-void ubifs_set_rootarg(struct ubifs_priv *priv, struct fs_device_d *fsdev)
+static void ubifs_set_rootarg(struct ubifs_priv *priv, struct fs_device_d *fsdev)
 {
 	struct ubi_volume_info vi = {};
 	struct ubi_device_info di = {};
@@ -477,7 +470,6 @@ static struct fs_driver_d ubifs_driver = {
 	.open      = ubifs_open,
 	.close     = ubifs_close,
 	.read      = ubifs_read,
-	.lseek     = ubifs_lseek,
 	.type = filetype_ubifs,
 	.flags     = 0,
 	.drv = {
@@ -504,6 +496,7 @@ static int zlib_decomp_init(void)
 }
 
 int ubifs_allow_encrypted;
+int ubifs_allow_authenticated_unauthenticated;
 
 static int ubifs_init(void)
 {
@@ -516,6 +509,8 @@ static int ubifs_init(void)
 	}
 
 	globalvar_add_simple_bool("ubifs.allow_encrypted", &ubifs_allow_encrypted);
+	globalvar_add_simple_bool("ubifs.allow_authenticated_unauthenticated",
+				  &ubifs_allow_authenticated_unauthenticated);
 
 	return register_fs_driver(&ubifs_driver);
 }
@@ -524,3 +519,6 @@ coredevice_initcall(ubifs_init);
 
 BAREBOX_MAGICVAR_NAMED(global_ubifs_allow_encrypted, global.ubifs.allow_encrypted,
 		       "If true, allow to mount UBIFS with encrypted files");
+BAREBOX_MAGICVAR_NAMED(global_ubifs_allow_authenticated_unauthenticated,
+		       global.ubifs.allow_authenticated_unauthenticated,
+		       "If true, allow to mount authenticated UBIFS images without doing authentication");

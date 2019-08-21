@@ -243,7 +243,7 @@ static struct soc_type socs[] = {
 	{ .name = "imx53",  .header_version = 2, .cpu_type = IMX_CPU_IMX53,  .header_gap = 0,      .first_opcode = 0xea0003fe /* b 0x1000 */},
 	{ .name = "imx6",   .header_version = 2, .cpu_type = IMX_CPU_IMX6,   .header_gap = 0,      .first_opcode = 0xea0003fe /* b 0x1000 */},
 	{ .name = "imx7",   .header_version = 2, .cpu_type = IMX_CPU_IMX7,   .header_gap = 0,      .first_opcode = 0xea0003fe /* b 0x1000 */},
-	{ .name = "imx8mq", .header_version = 2, .cpu_type = IMX_CPU_IMX8MQ, .header_gap = SZ_32K, .first_opcode = 0x14009000 /* b 0x9000 */},
+	{ .name = "imx8mq", .header_version = 2, .cpu_type = IMX_CPU_IMX8MQ, .header_gap = SZ_32K, .first_opcode = 0x14000000 /* b 0x0000 (offset computed) */},
 	{ .name = "vf610",  .header_version = 2, .cpu_type = IMX_CPU_VF610,  .header_gap = 0,      .first_opcode = 0xea0003fe /* b 0x1000 */},
 };
 
@@ -279,6 +279,16 @@ static int do_soc(struct config_data *data, int argc, char *argv[])
 	return -EINVAL;
 }
 
+static int do_max_load_size(struct config_data *data, int argc, char *argv[])
+{
+	if (argc < 2)
+		return -EINVAL;
+
+	data->max_load_size = strtoul(argv[1], NULL, 0);
+
+	return 0;
+}
+
 static int hab_add_str(struct config_data *data, const char *str)
 {
 	int len = strlen(str);
@@ -300,7 +310,7 @@ static int do_hab(struct config_data *data, int argc, char *argv[])
 	if (!data->csf) {
 		data->csf_space = 0x10000;
 
-		data->csf = malloc(data->csf_space + 1);
+		data->csf = calloc(data->csf_space + 1, 1);
 		if (!data->csf)
 			return -ENOMEM;
 	}
@@ -328,6 +338,7 @@ static int do_hab_blocks(struct config_data *data, int argc, char *argv[])
 	char *str;
 	int ret;
 	uint32_t signed_size = data->load_size;
+	uint32_t offset = 0;
 
 	if (!data->csf)
 		return -EINVAL;
@@ -344,9 +355,19 @@ static int do_hab_blocks(struct config_data *data, int argc, char *argv[])
 	if (data->encrypt_image)
 		signed_size = ENCRYPT_OFFSET;
 
+	/*
+	 * Ensure we only sign the PBL for i.MX8MQ
+	 */
+	if (data->pbl_code_size && data->cpu_type == IMX_CPU_IMX8MQ) {
+		offset = data->header_gap;
+		signed_size = roundup(data->pbl_code_size + HEADER_LEN, 0x1000);
+		if (data->signed_hdmi_firmware_file)
+			offset += PLUGIN_HDMI_SIZE;
+	}
+
 	if (!strcmp(type, "full")) {
-		ret = asprintf(&str, "Blocks = 0x%08x 0 %d \"%s\"\n",
-			       data->image_load_addr, signed_size,
+		ret = asprintf(&str, "Blocks = 0x%08x 0x%08x 0x%08x \"%s\"\n",
+			       data->image_load_addr, offset, signed_size,
 			       data->outfile);
 	} else if (!strcmp(type, "from-dcdofs")) {
 		ret = asprintf(&str, "Blocks = 0x%08x 0x%x %d \"%s\"\n",
@@ -590,6 +611,9 @@ struct command cmds[] = {
 	}, {
 		.name = "soc",
 		.parse = do_soc,
+	},  {
+		.name = "max_load_size",
+		.parse = do_max_load_size,
 	}, {
 		.name = "hab",
 		.parse = do_hab,

@@ -27,12 +27,11 @@
 #include <asm/barebox-arm-head.h>
 #include <mach/imx31-regs.h>
 #include <mach/imx-pll.h>
-#include <asm/barebox-arm-head.h>
 #include <mach/esdctl.h>
 
 #define ESDCTL0_VAL (ESDCTL0_SDE | ESDCTL0_ROW13 | ESDCTL0_COL10)
 
-void __bare_init __naked barebox_arm_reset_vector(void)
+void __bare_init __naked barebox_arm_reset_vector(uint32_t r0, uint32_t r1, uint32_t r2)
 {
 	uint32_t r;
 	volatile int v;

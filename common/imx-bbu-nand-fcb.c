@@ -204,7 +204,7 @@ static void encode_bch_ecc(void *buf, struct fcb_block *fcb, int eccbits)
 	free_bch(bch);
 }
 
-struct fcb_block *read_fcb_bch(void *rawpage, int eccbits)
+static struct fcb_block *read_fcb_bch(void *rawpage, int eccbits)
 {
 	int i, j, ret, errbit, m = 13;
 	int blocksize = 128;
@@ -308,7 +308,7 @@ static uint32_t calc_chksum(void *buf, size_t size)
 	return ~chksum;
 }
 
-struct fcb_block *read_fcb_hamming_13_8(void *rawpage)
+static struct fcb_block *read_fcb_hamming_13_8(void *rawpage)
 {
 	int i;
 	int bitflips = 0, bit_to_flip;
@@ -486,15 +486,22 @@ err:
 static int fcb_create(struct imx_nand_fcb_bbu_handler *imx_handler,
 		struct fcb_block *fcb, struct mtd_info *mtd)
 {
+	int ecc_strength;
+	int bb_mark_bit_offset;
+	int ret;
+
 	fcb->FingerPrint = 0x20424346;
 	fcb->Version = 0x01000000;
 	fcb->PageDataSize = mtd->writesize;
 	fcb->TotalPageSize = mtd->writesize + mtd->oobsize;
 	fcb->SectorsPerBlock = mtd->erasesize / mtd->writesize;
 
+	ret = mxs_nand_get_geo(&ecc_strength, &bb_mark_bit_offset);
+	if (ret)
+		return ret;
+
 	/* Divide ECC strength by two and save the value into FCB structure. */
-	fcb->EccBlock0EccType =
-		mxs_nand_get_ecc_strength(mtd->writesize, mtd->oobsize) >> 1;
+	fcb->EccBlock0EccType = ecc_strength >> 1;
 	fcb->EccBlockNEccType = fcb->EccBlock0EccType;
 
 	fcb->EccBlock0Size = 0x00000200;
@@ -505,8 +512,8 @@ static int fcb_create(struct imx_nand_fcb_bbu_handler *imx_handler,
 	/* DBBT search area starts at second page on first block */
 	fcb->DBBTSearchAreaStartAddress = 1;
 
-	fcb->BadBlockMarkerByte = mxs_nand_mark_byte_offset(mtd);
-	fcb->BadBlockMarkerStartBit = mxs_nand_mark_bit_offset(mtd);
+	fcb->BadBlockMarkerByte = bb_mark_bit_offset >> 3;
+	fcb->BadBlockMarkerStartBit = bb_mark_bit_offset & 0x7;
 
 	fcb->BBMarkerPhysicalOffset = mtd->writesize;
 
@@ -531,6 +538,9 @@ again:
 
 	if (ret == -EBADMSG) {
 		ret = mtd_peb_torture(mtd, block);
+		if (ret == -EIO)
+			mtd_peb_mark_bad(mtd, block);
+
 		if (!ret && retries++ < 3)
 			goto again;
 	}
@@ -606,9 +616,10 @@ static int imx_bbu_write_firmware(struct mtd_info *mtd, unsigned num, void *buf,
 	int ret, i, newbadblock = 0;
 	int num_blocks = imx_bbu_firmware_max_blocks(mtd);
 	int block = imx_bbu_firmware_start_block(mtd, num);
+	int page = block * mtd->erasesize / mtd->writesize;
 
-	pr_info("writing firmware %d to block %d (ofs 0x%08x)\n",
-			num, block, block * mtd->erasesize);
+	pr_info("writing firmware to slot %d on pages %d-%d\n",
+			num, page, page + len / mtd->writesize);
 
 	for (i = 0; i < num_blocks; i++) {
 		if (mtd_peb_is_bad(mtd, block + i))
@@ -770,6 +781,8 @@ out:
 
 	if (ret == -EBADMSG) {
 		ret = mtd_peb_torture(mtd, block);
+		if (ret == -EIO)
+			mtd_peb_mark_bad(mtd, block);
 
 		if (!ret && retries++ < 3)
 			goto again;
@@ -976,6 +989,9 @@ static int imx_bbu_write_fcbs_dbbts(struct mtd_info *mtd, struct fcb_block *fcb)
 	 */
 	memset(fcb_raw_page + mtd->writesize, 0xFF, 2);
 
+	pr_info("Writing FCBs/DBBTs with primary/secondary Firmwares at pages %d/%d\n",
+		fcb->Firmware1_startingPage, fcb->Firmware2_startingPage);
+
 	for (i = 0; i < 4; i++) {
 		if (mtd_peb_is_bad(mtd, i))
 			continue;
@@ -1108,7 +1124,7 @@ err:
 
 	if (need_cleaning) {
 		pr_warn("Firmware at page %d needs cleanup\n", first_page);
-		return -EUCLEAN;
+		return 1;
 	}
 
 	return 0;
@@ -1162,13 +1178,14 @@ static void read_firmware_all(struct mtd_info *mtd, struct fcb_block *fcb, void 
 		*unused_refresh = 1;
 		*used = first;
 		*data = primary;
-		return;
 	} else if (secondary && !primary) {
 		*used_refresh = secondary_refresh;
 		*unused_refresh = 1;
 		*used = !first;
 		*data = secondary;
 	} else {
+		*unused_refresh = secondary_refresh;
+
 		if (memcmp(primary, secondary, fcb->PagesInFirmware1 * mtd->writesize))
 			*unused_refresh = 1;
 
@@ -1178,15 +1195,20 @@ static void read_firmware_all(struct mtd_info *mtd, struct fcb_block *fcb, void 
 		free(secondary);
 	}
 
-	pr_info("Primary firmware is on pages %d-%d, %svalid, %s\n", fcb->Firmware1_startingPage,
+	pr_info("Primary firmware is in slot %d on pages %d-%d, %svalid, %s\n",
+		first,
+		fcb->Firmware1_startingPage,
 		fcb->Firmware1_startingPage + fcb->PagesInFirmware1, primary ? "" : "in",
 		primary_refresh ? "needs cleanup" : "clean");
 
-	pr_info("Secondary firmware is on pages %d-%d, %svalid, %s\n", fcb->Firmware2_startingPage,
+	pr_info("Secondary firmware is in slot %d on pages %d-%d, %svalid, %s\n",
+		!first,
+		fcb->Firmware2_startingPage,
 		fcb->Firmware2_startingPage + fcb->PagesInFirmware2, secondary ? "" : "in",
 		secondary_refresh ? "needs cleanup" : "clean");
 
-	pr_info("ROM uses slot %d\n", *used);
+	pr_info("ROM uses slot %d (%s firmware)\n",
+		*used, primary ? "primary" : secondary ? "secondary" : "no");
 }
 
 static int imx_bbu_nand_update(struct bbu_handler *handler, struct bbu_data *data)
@@ -1198,9 +1220,8 @@ static int imx_bbu_nand_update(struct bbu_handler *handler, struct bbu_data *dat
 	int ret, i;
 	struct fcb_block *fcb = NULL;
 	void *fw = NULL, *fw_orig = NULL;
-	unsigned fw_size, partition_size;
 	enum filetype filetype;
-	unsigned num_blocks_fw;
+	unsigned num_blocks_fw, fw_size;
 	int used = 0;
 	int fw_orig_len;
 	int used_refresh = 0, unused_refresh = 0;
@@ -1222,7 +1243,12 @@ static int imx_bbu_nand_update(struct bbu_handler *handler, struct bbu_data *dat
 	}
 
 	mtd = bcb_cdev->mtd;
-	partition_size = mtd->size;
+
+	num_blocks_fw = imx_bbu_firmware_max_blocks(mtd);
+	if (num_blocks_fw < 1) {
+		pr_err("Not enough space for firmware\n");
+		return -ENOSPC;
+	}
 
 	for (i = 0; i < 4; i++) {
 		read_fcb(mtd, i, &fcb);
@@ -1327,9 +1353,13 @@ static int imx_bbu_nand_update(struct bbu_handler *handler, struct bbu_data *dat
 		fw = fw_orig;
 		fw_size = fw_orig_len;
 		pr_info("Refreshing existing firmware\n");
-	}
 
-	num_blocks_fw = imx_bbu_firmware_max_blocks(mtd);
+		if (used_refresh) {
+			fcb->Firmware1_startingPage = imx_bbu_firmware_fcb_start_page(mtd, !used);
+			fcb->Firmware2_startingPage = imx_bbu_firmware_fcb_start_page(mtd, used);
+			fcb_create(imx_handler, fcb, mtd);
+		}
+	}
 
 	if (num_blocks_fw * mtd->erasesize < fw_size) {
 		pr_err("Not enough space for update\n");

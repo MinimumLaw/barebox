@@ -18,14 +18,14 @@ FDTGET=scripts/dtc/fdtget
 
 if [ "$imd" = "y" ]; then
 	echo ".section .barebox_imd_0.${name},\"a\""
-	echo ".global __imd_${name}_start"
-	echo "__imd_${name}_start:"
+	echo ".global __barebox_imd_OF_${name}"
+	echo "__barebox_imd_OF_${name}:"
 
 	compat=$($FDTGET -d notfound -t bi "$dtb" / compatible | sed "s^ ^,^g")
 	if [ "$compat" != "notfound" ]; then
 
 		compatlen=$($FDTGET -t s "$dtb" / compatible | wc -c)
-		le32 0x640c8005
+		le32 0x640c8005 # IMD_TYPE_OF_COMPATIBLE
 		le32 $compatlen
 		echo ".byte " $compat
 		echo ".balign 4"
@@ -35,7 +35,7 @@ if [ "$imd" = "y" ]; then
 
 	if [ "$model" != "notfound" ]; then
 		modellen=$($FDTGET -t s "$dtb" / model | wc -c)
-		le32 0x640c8004
+		le32 0x640c8004 # IMD_TYPE_MODEL
 		le32 $modellen
 		echo ".byte " $model
 		echo ".balign 4"
@@ -55,8 +55,8 @@ lzop -f -9 $dtb -o $dtb.lzo
 if [ $? != 0 ]; then
 	exit 1
 fi
-compressed=$(stat $dtb.lzo -c "%s")
-uncompressed=$(stat $dtb -c "%s")
+compressed=$(${CONFIG_SHELL} "${srctree}/scripts/file-size.sh" $dtb.lzo)
+uncompressed=$(${CONFIG_SHELL} "${srctree}/scripts/file-size.sh" $dtb)
 
 echo ".section .dtbz.rodata.${name},\"a\""
 echo ".balign STRUCT_ALIGNMENT"
@@ -69,7 +69,3 @@ echo ".incbin \"$dtb.lzo\""
 echo "__dtb_z_${name}_end:"
 echo ".global __dtb_z_${name}_end"
 echo ".balign STRUCT_ALIGNMENT"
-
-if [ "$imd" = "y" ]; then
-	echo ".word __imd_${name}_start"
-fi

@@ -1,21 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Startup Code for MIPS CPU
  *
  * Copyright (C) 2011, 2012 Antony Pavlov <antonynpavlov@gmail.com>
  * ADR macro copyrighted (C) 2009 by Shinya Kuribayashi <skuribay@pobox.com>
- *
- * This file is part of barebox.
- * See file CREDITS for list of people who contributed to this project.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2
- * as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
  */
 
 #ifndef __ASM_PBL_MACROS_H
@@ -199,7 +187,7 @@ copy_loop_exit:
 	 *
 	 */
 
-#if (STACK_BASE + STACK_SIZE) % 16 != 0
+#if (TEXT_BASE - MALLOC_SIZE) % 16 != 0
 #error stack pointer must be 16-byte-aligned
 #endif
 
@@ -208,7 +196,7 @@ copy_loop_exit:
 	.set	noreorder
 
 	/* set stack pointer; reserve four 32-bit argument slots */
-	la	sp, STACK_BASE + STACK_SIZE - 16
+	la	sp, (TEXT_BASE - MALLOC_SIZE - 16)
 
 	.set	pop
 	.endm

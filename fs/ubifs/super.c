@@ -37,14 +37,6 @@
 #include "ubifs.h"
 #include <mtd/ubi-user.h>
 
-int ubifs_iput(struct inode *inode)
-{
-	list_del_init(&inode->i_sb_list);
-
-	free(inode);
-	return 0;
-}
-
 /* from include/linux/fs.h */
 static inline void i_uid_write(struct inode *inode, uid_t uid)
 {
@@ -56,7 +48,7 @@ static inline void i_gid_write(struct inode *inode, gid_t gid)
 	inode->i_gid = gid;
 }
 
-void unlock_new_inode(struct inode *inode)
+static void unlock_new_inode(struct inode *inode)
 {
 	return;
 }
@@ -399,6 +391,9 @@ static int init_constants_early(struct ubifs_info *c)
 	c->ranges[UBIFS_REF_NODE].len  = UBIFS_REF_NODE_SZ;
 	c->ranges[UBIFS_TRUN_NODE].len = UBIFS_TRUN_NODE_SZ;
 	c->ranges[UBIFS_CS_NODE].len   = UBIFS_CS_NODE_SZ;
+	c->ranges[UBIFS_AUTH_NODE].min_len = UBIFS_AUTH_NODE_SZ;
+	c->ranges[UBIFS_AUTH_NODE].max_len = UBIFS_AUTH_NODE_SZ +
+				UBIFS_MAX_HMAC_LEN;
 
 	c->ranges[UBIFS_INO_NODE].min_len  = UBIFS_INO_NODE_SZ;
 	c->ranges[UBIFS_INO_NODE].max_len  = UBIFS_MAX_INO_NODE_SZ;
@@ -572,6 +567,9 @@ static int alloc_wbufs(struct ubifs_info *c)
 
 		c->jheads[i].wbuf.jhead = i;
 		c->jheads[i].grouped = 1;
+		c->jheads[i].log_hash = ubifs_hash_get_desc(c);
+		if (IS_ERR(c->jheads[i].log_hash))
+			goto out;
 	}
 
 	/*
@@ -582,6 +580,12 @@ static int alloc_wbufs(struct ubifs_info *c)
 	c->jheads[GCHD].grouped = 0;
 
 	return 0;
+
+out:
+	while (i--)
+		kfree(c->jheads[i].log_hash);
+
+	return err;
 }
 
 /**
@@ -761,6 +765,19 @@ static int mount_ubifs(struct ubifs_info *c)
 
 	c->mounting = 1;
 
+	if (c->auth_key_name) {
+		if (IS_ENABLED(CONFIG_UBIFS_FS_AUTHENTICATION)) {
+			err = ubifs_init_authentication(c);
+			if (err)
+				goto out_free;
+		} else {
+			ubifs_err(c, "auth_key_name, but UBIFS is built without"
+				  " authentication support");
+			err = -EINVAL;
+			goto out_free;
+		}
+	}
+
 	err = ubifs_read_superblock(c);
 	if (err)
 		goto out_free;
@@ -811,9 +828,10 @@ static int mount_ubifs(struct ubifs_info *c)
 
 	if (!c->ro_mount) {
 	} else if (c->need_recovery) {
-		err = ubifs_recover_size(c);
+		err = ubifs_recover_size(c, false);
 		if (err)
 			goto out_orphans;
+	} else {
 	}
 
 	if (c->need_recovery) {
@@ -940,7 +958,10 @@ void ubifs_umount(struct ubifs_info *c)
 	spin_unlock(&ubifs_infos_lock);
 
 	free_wbufs(c);
+	ubifs_exit_authentication(c);
 
+	kfree(c->auth_key_name);
+	kfree(c->auth_hash_name);
 	kfree(c->cbuf);
 	kfree(c->rcvrd_mst_node);
 	kfree(c->mst_node);

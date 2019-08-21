@@ -150,6 +150,7 @@ void of_eth_register_ethaddr(struct device_node *node, const char *ethaddr)
 
 	addr = xzalloc(sizeof(*addr));
 	addr->node = node;
+	addr->ethid = -1;
 	memcpy(addr->ethaddr, ethaddr, ETH_ALEN);
 	list_add_tail(&addr->list, &ethaddr_list);
 }
@@ -343,7 +344,7 @@ static int eth_register_of_fixup(void)
 late_initcall(eth_register_of_fixup);
 #endif
 
-extern IPaddr_t net_serverip;
+extern char *net_server;
 extern IPaddr_t net_gateway;
 
 static const char * const eth_mode_names[] = {
@@ -363,7 +364,7 @@ int eth_register(struct eth_device *edev)
 		return -1;
 	}
 
-	strcpy(edev->dev.name, "eth");
+	dev_set_name(&edev->dev, "eth");
 
 	if (edev->parent)
 		edev->dev.parent = edev->parent;
@@ -383,7 +384,7 @@ int eth_register(struct eth_device *edev)
 	edev->devname = xstrdup(dev_name(&edev->dev));
 
 	dev_add_param_ip(dev, "ipaddr", NULL, NULL, &edev->ipaddr, edev);
-	dev_add_param_ip(dev, "serverip", NULL, NULL, &net_serverip, edev);
+	dev_add_param_string(dev, "serverip", NULL, NULL, &net_server, edev);
 	dev_add_param_ip(dev, "gateway", NULL, NULL, &net_gateway, edev);
 	dev_add_param_ip(dev, "netmask", NULL, NULL, &edev->netmask, edev);
 	dev_add_param_mac(dev, "ethaddr", eth_param_set_ethaddr, NULL,

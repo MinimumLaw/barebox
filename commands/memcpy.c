@@ -34,60 +34,25 @@
 #include <linux/stat.h>
 #include <xfuncs.h>
 
-extern char *mem_rw_buf;
-
-static char *devmem = "/dev/mem";
-
 static int do_memcpy(int argc, char *argv[])
 {
-	loff_t count, dest, src;
-	char *sourcefile = devmem;
-	char *destfile = devmem;
+	loff_t count;
 	int sourcefd, destfd;
-	int mode = 0;
-	struct stat statbuf;
 	int ret = 0;
+	char *buf;
 
-	if (mem_parse_options(argc, argv, "bwlqs:d:", &mode, &sourcefile,
-			&destfile, NULL) < 0)
+	if (memcpy_parse_options(argc, argv, &sourcefd, &destfd, &count,
+				 0, O_WRONLY | O_CREAT) < 0)
 		return 1;
 
-	if (optind + 2 > argc)
-		return COMMAND_ERROR_USAGE;
-
-	src = strtoull_suffix(argv[optind], NULL, 0);
-	dest = strtoull_suffix(argv[optind + 1], NULL, 0);
-
-	if (optind + 2 == argc) {
-		if (sourcefile == devmem) {
-			printf("source and count not given\n");
-			return 1;
-		}
-		if (stat(sourcefile, &statbuf)) {
-			perror("stat");
-			return 1;
-		}
-		count = statbuf.st_size - src;
-	} else {
-		count = strtoull_suffix(argv[optind + 2], NULL, 0);
-	}
-
-	sourcefd = open_and_lseek(sourcefile, mode | O_RDONLY, src);
-	if (sourcefd < 0)
-		return 1;
-
-	destfd = open_and_lseek(destfile, O_WRONLY | O_CREAT | mode, dest);
-	if (destfd < 0) {
-		close(sourcefd);
-		return 1;
-	}
+	buf = xmalloc(RW_BUF_SIZE);
 
 	while (count > 0) {
-		int now, r, w, tmp;
+		int now, r;
 
-		now = min((loff_t)RW_BUF_SIZE, count);
+		now = min_t(loff_t, RW_BUF_SIZE, count);
 
-		r = read(sourcefd, mem_rw_buf, now);
+		r = read(sourcefd, buf, now);
 		if (r < 0) {
 			perror("read");
 			goto out;
@@ -96,19 +61,9 @@ static int do_memcpy(int argc, char *argv[])
 		if (!r)
 			break;
 
-		tmp = 0;
-		now = r;
-		while (now) {
-			w = write(destfd, mem_rw_buf + tmp, now);
-			if (w < 0) {
-				perror("write");
-				goto out;
-			}
-	                if (!w)
-			        break;
-
-			now -= w;
-			tmp += w;
+		if (write_full(destfd, buf, r) < 0) {
+			perror("write");
+			goto out;
 		}
 
 		count -= r;
@@ -123,6 +78,7 @@ static int do_memcpy(int argc, char *argv[])
 	}
 
 out:
+	free(buf);
 	close(sourcefd);
 	close(destfd);
 

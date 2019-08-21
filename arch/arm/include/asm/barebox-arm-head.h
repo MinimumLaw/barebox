@@ -7,6 +7,7 @@
 
 void arm_cpu_lowlevel_init(void);
 void cortex_a7_lowlevel_init(void);
+void barebox_arm_reset_vector(uint32_t r0, uint32_t r1, uint32_t r2);
 
 /*
  * 32 bytes at this offset is reserved in the barebox head for board/SoC
@@ -63,6 +64,13 @@ static inline void __barebox_arm_head(void)
 		".word 0x55555555\n"
 		".endr\n"
 		"2:\n"
+#ifdef CONFIG_PBL_BREAK
+		"bkpt #17\n"
+		"nop\n"
+#else
+		"nop\n"
+		"nop\n"
+#endif
 	);
 }
 static inline void barebox_arm_head(void)

@@ -1,4 +1,3 @@
-obj-y += clocksource.o
 obj-$(CONFIG_ARCH_IMX1)  += imx1.o
 obj-$(CONFIG_ARCH_IMX25) += imx25.o
 obj-$(CONFIG_ARCH_IMX21) += imx21.o
@@ -11,7 +10,7 @@ obj-$(CONFIG_ARCH_IMX51) += imx51.o imx5.o
 pbl-$(CONFIG_ARCH_IMX51) += imx51.o imx5.o
 obj-$(CONFIG_ARCH_IMX53) += imx53.o imx5.o esdctl-v4.o
 pbl-$(CONFIG_ARCH_IMX53) += imx53.o imx5.o esdctl-v4.o
-obj-$(CONFIG_ARCH_IMX6) += imx6.o usb-imx6.o
+obj-$(CONFIG_ARCH_IMX6) += imx6.o
 CFLAGS_imx6.o := -march=armv7-a
 lwl-$(CONFIG_ARCH_IMX6) += imx6-mmdc.o
 obj-$(CONFIG_ARCH_IMX7) += imx7.o
@@ -27,4 +26,4 @@ obj-$(CONFIG_BAREBOX_UPDATE) += imx-bbu-internal.o
 obj-$(CONFIG_BAREBOX_UPDATE_IMX_EXTERNAL_NAND) += imx-bbu-external-nand.o
 obj-$(CONFIG_RESET_IMX_SRC) += src.o
 lwl-y += cpu_init.o
-pbl-y += xload-spi.o xload-esdhc.o xload-common.o xload-imx-nand.o
+pbl-y += xload-spi.o xload-common.o xload-imx-nand.o

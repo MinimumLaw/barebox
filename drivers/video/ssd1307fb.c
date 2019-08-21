@@ -18,7 +18,6 @@
  */
 
 #include <common.h>
-#include <init.h>
 #include <fb.h>
 #include <i2c/i2c.h>
 #include <of_device.h>
@@ -549,8 +548,10 @@ static int ssd1307fb_probe(struct device_d *dev)
 	/* clear display */
 	array = ssd1307fb_alloc_array(par->width * par->height / 8,
 				      SSD1307FB_DATA);
-	if (!array)
-		return -ENOMEM;
+	if (!array) {
+		ret = -ENOMEM;
+		goto panel_init_error;
+	}
 
 	for (i = 0; i < (par->height / 8); i++) {
 		for (j = 0; j < par->width; j++) {
@@ -570,6 +571,7 @@ static int ssd1307fb_probe(struct device_d *dev)
 
 panel_init_error:
 reset_oled_error:
+	free(vmem);
 fb_alloc_error:
 	regulator_disable(par->vbat);
 	free(info);
@@ -581,11 +583,4 @@ static struct driver_d ssd1307fb_driver = {
 	.probe = ssd1307fb_probe,
 	.of_compatible = DRV_OF_COMPAT(ssd1307fb_of_match),
 };
-
-static int ssd1307_init(void)
-{
-	i2c_driver_register(&ssd1307fb_driver);
-	return 0;
-}
-
-device_initcall(ssd1307_init);
+device_i2c_driver(ssd1307fb_driver);

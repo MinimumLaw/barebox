@@ -1,3 +1,8 @@
+menu "Clocksource"
+
+config ARCH_HAS_IMX_GPT
+       bool
+
 config AMBA_SP804
 	bool
 	depends on ARM_AMBA
@@ -64,9 +69,28 @@ config CLOCKSOURCE_ROCKCHIP
 
 config CLOCKSOURCE_ATMEL_PIT
        bool
-       depends on SOC_AT91SAM9 || SOC_SAMA5
 
 config CLOCKSOURCE_ARMV8_TIMER
 	bool
 	default y
-	depends on ARM && CPU_64v8
+	depends on ARM && (CPU_64v8 || CPU_V7)
+
+config CLOCKSOURCE_ARM_GLOBAL_TIMER
+	bool
+	depends on ARM && CPU_V7
+config CLOCKSOURCE_IMX_GPT
+	def_bool y
+	depends on ARCH_HAS_IMX_GPT
+
+config CLOCKSOURCE_DW_APB_TIMER
+	bool "DW APB timer driver"
+	help
+	  Enables the support for the dw_apb timer.
+
+config CLOCKSOURCE_TI_DM
+	bool
+
+config CLOCKSOURCE_TI_32K
+	bool
+
+endmenu

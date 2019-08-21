@@ -1,3 +1,5 @@
+KBUILD_DEFCONFIG := qemu-malta_defconfig
+
 #
 # Select the object file format to substitute into the linker script.
 #
@@ -12,7 +14,7 @@ endif
 CPPFLAGS += -D__MIPS__ -fno-strict-aliasing -fno-merge-constants
 
 cflags-y += -G 0 -mno-abicalls -fno-pic -pipe
-cflags-y += -Wall -Wmissing-prototypes -Wstrict-prototypes \
+cflags-y += -Wall -Wstrict-prototypes \
 	-Wno-uninitialized -Wno-format -Wno-main
 
 ifdef CONFIG_32BIT
@@ -41,6 +43,7 @@ ldflags-y += $(shell $(CC) -dumpmachine |grep -q 'mips.*el-.*' || echo -EL )
 endif
 
 LDFLAGS += $(ldflags-y) -m $(ld-emul)
+LDFLAGS_barebox += $(ldflags-y)
 
 #
 # CPU-dependent compiler/assembler options for optimization.
@@ -58,7 +61,7 @@ CPPFLAGS += -DTEXT_BASE=$(CONFIG_TEXT_BASE)
 ifndef CONFIG_MODULES
 # Add cleanup flags
 CPPFLAGS += -fdata-sections -ffunction-sections
-LDFLAGS_barebox += -static --gc-sections
+LDFLAGS_barebox += -static --gc-sections --emit-relocs
 endif
 
 ifdef CONFIG_IMAGE_COMPRESSION
@@ -73,28 +76,11 @@ endif
 LDFLAGS_barebox += -nostdlib
 
 machine-$(CONFIG_MACH_MIPS_MALTA)	:= malta
-board-$(CONFIG_BOARD_QEMU_MALTA)	:= qemu-malta
-
 machine-$(CONFIG_MACH_MIPS_AR231X)	:= ar231x
-board-$(CONFIG_BOARD_NETGEAR_WG102)	:= netgear-wg102
-
 machine-$(CONFIG_MACH_MIPS_ATH79)	:= ath79
-board-$(CONFIG_BOARD_8DEVICES_LIMA)	:= 8devices-lima
-board-$(CONFIG_BOARD_DPTECHNICS_DPT_MODULE)	:= dptechnics-dpt-module
-board-$(CONFIG_BOARD_TPLINK_MR3020)	:= tplink-mr3020
-board-$(CONFIG_BOARD_TPLINK_WDR4300)	:= tplink-wdr4300
-board-$(CONFIG_BOARD_BLACK_SWIFT)	:= black-swift
-
 machine-$(CONFIG_MACH_MIPS_BCM47XX)	:= bcm47xx
-board-$(CONFIG_BOARD_DLINK_DIR320)	:= dlink-dir-320
-
 machine-$(CONFIG_MACH_MIPS_LOONGSON)	:= loongson
-board-$(CONFIG_BOARD_LOONGSON_TECH_LS1B)	:= loongson-ls1b
-
 machine-$(CONFIG_MACH_MIPS_XBURST)	:= xburst
-board-$(CONFIG_BOARD_RZX50)	:= ritmix-rzx50
-board-$(CONFIG_BOARD_CI20)	:= img-ci20
-
 machdirs := $(patsubst %,arch/mips/mach-%/,$(machine-y))
 
 ifeq ($(KBUILD_SRC),)
@@ -108,12 +94,6 @@ incdir-y := $(machine-y)
 endif
 INCDIR   := arch-$(incdir-y)
 
-ifneq ($(board-y),)
-BOARD := arch/mips/boards/$(board-y)/
-else
-BOARD :=
-endif
-
 ifeq ($(KBUILD_SRC),)
 CPPFLAGS += -I$(BOARD)/include
 else
@@ -126,20 +106,24 @@ else
 MACH  :=
 endif
 
-ifndef CONFIG_HAS_NO_BOARD_HL_CODE
 common-y += $(BOARD)
-endif
 
 common-y += $(MACH)
 common-y += arch/mips/lib/
 common-y += arch/mips/boot/
-
-common-$(CONFIG_BUILTIN_DTB) += arch/mips/dts/
+common-y += arch/mips/boards/
 
 CPPFLAGS += $(cflags-y)
 CFLAGS += $(cflags-y)
 
 lds-$(CONFIG_GENERIC_LINKER_SCRIPT)   := arch/mips/lib/barebox.lds
+
+cmd_barebox__ ?= $(LD) $(LDFLAGS) $(LDFLAGS_barebox) -o $@ \
+      -T $(barebox-lds)                         \
+      --start-group $(barebox-common) --end-group                  \
+      $(filter-out $(barebox-lds) $(barebox-common) FORCE ,$^);	\
+	$(objtree)/scripts/mips-relocs $@
+
 
 CLEAN_FILES    += arch/mips/lib/barebox.lds barebox.map barebox.S
 
@@ -154,5 +138,7 @@ dts := arch/mips/dts
 
 %.dtb: scripts
 	$(Q)$(MAKE) $(build)=$(dts) $(dts)/$@
+
+common-$(CONFIG_OFTREE) += arch/mips/dts/
 
 KBUILD_IMAGE ?= $(KBUILD_BINARY)

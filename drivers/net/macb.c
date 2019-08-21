@@ -1,16 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2005-2006 Atmel Corporation
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  */
 #include <common.h>
 
@@ -56,21 +46,23 @@
 #define RX_BUFFER_MULTIPLE	64  /* bytes */
 #define RX_NB_PACKET		10
 #define TX_RING_SIZE		2 /* must be power of 2 */
+#define GEM_Q1_DESCS		2
 
 #define RX_RING_BYTES(bp)	(sizeof(struct macb_dma_desc) * bp->rx_ring_size)
 #define TX_RING_BYTES		(sizeof(struct macb_dma_desc) * TX_RING_SIZE)
+#define GEM_Q1_DESC_BYTES	(sizeof(struct macb_dma_desc) * GEM_Q1_DESCS)
 
 struct macb_device {
 	void			__iomem *regs;
 
 	unsigned int		rx_tail;
 	unsigned int		tx_head;
-	unsigned int		tx_tail;
 
 	void			*rx_buffer;
 	void			*tx_buffer;
 	struct macb_dma_desc	*rx_ring;
 	struct macb_dma_desc	*tx_ring;
+	struct macb_dma_desc	*gem_q1_descs;
 
 	int			rx_buffer_size;
 	int			rx_ring_size;
@@ -97,7 +89,7 @@ static inline bool macb_is_gem(struct macb_device *macb)
 
 static inline bool read_is_gem(struct macb_device *macb)
 {
-	return MACB_BFEXT(IDNUM, macb_readl(macb, MID)) == 0x2;
+	return MACB_BFEXT(IDNUM, macb_readl(macb, MID)) >= 0x2;
 }
 
 static int macb_send(struct eth_device *edev, void *packet,
@@ -217,9 +209,11 @@ static int macb_recv(struct eth_device *edev)
 	dev_dbg(macb->dev, "%s\n", __func__);
 
 	for (;;) {
+		barrier();
 		if (!(macb->rx_ring[rx_tail].addr & MACB_BIT(RX_USED)))
 			return -1;
 
+		barrier();
 		status = macb->rx_ring[rx_tail].ctrl;
 		if (status & MACB_BIT(RX_SOF)) {
 			if (rx_tail != macb->rx_tail)
@@ -236,14 +230,26 @@ static int macb_recv(struct eth_device *edev)
 				headlen = macb->rx_buffer_size * (macb->rx_ring_size
 						 - macb->rx_tail);
 				taillen = length - headlen;
-				memcpy((void *)NetRxPackets[0],
-				       buffer, headlen);
+				dma_sync_single_for_cpu((unsigned long)buffer,
+							headlen, DMA_FROM_DEVICE);
+				memcpy((void *)NetRxPackets[0], buffer, headlen);
+				dma_sync_single_for_cpu((unsigned long)macb->rx_buffer,
+							taillen, DMA_FROM_DEVICE);
 				memcpy((void *)NetRxPackets[0] + headlen,
-				       macb->rx_buffer, taillen);
-				buffer = (void *)NetRxPackets[0];
+					macb->rx_buffer, taillen);
+				dma_sync_single_for_device((unsigned long)buffer,
+							headlen, DMA_FROM_DEVICE);
+				dma_sync_single_for_device((unsigned long)macb->rx_buffer,
+							taillen, DMA_FROM_DEVICE);
+				net_receive(edev, NetRxPackets[0], length);
+			} else {
+				dma_sync_single_for_cpu((unsigned long)buffer, length,
+							DMA_FROM_DEVICE);
+				net_receive(edev, buffer, length);
+				dma_sync_single_for_device((unsigned long)buffer, length,
+							DMA_FROM_DEVICE);
 			}
-
-			net_receive(edev, buffer, length);
+			barrier();
 			if (++rx_tail >= macb->rx_ring_size)
 				rx_tail = 0;
 			reclaim_rx_buffers(macb, rx_tail);
@@ -253,7 +259,6 @@ static int macb_recv(struct eth_device *edev)
 				rx_tail = 0;
 			}
 		}
-		barrier();
 	}
 
 	return 0;
@@ -344,12 +349,26 @@ static void macb_init(struct macb_device *macb)
 	}
 	macb->tx_ring[TX_RING_SIZE - 1].addr |= MACB_BIT(TX_WRAP);
 
-	macb->rx_tail = macb->tx_head = macb->tx_tail = 0;
+	macb->rx_tail = macb->tx_head = 0;
 
 	macb_configure_dma(macb);
 
 	macb_writel(macb, RBQP, (ulong)macb->rx_ring);
 	macb_writel(macb, TBQP, (ulong)macb->tx_ring);
+
+	if (macb->is_gem && macb->gem_q1_descs) {
+		/* Disable the second priority queue */
+		macb->gem_q1_descs[0].addr = 0;
+		macb->gem_q1_descs[0].ctrl = MACB_BIT(TX_WRAP) |
+				MACB_BIT(TX_LAST) |
+				MACB_BIT(TX_USED);
+		macb->gem_q1_descs[1].addr = MACB_BIT(RX_USED) |
+				MACB_BIT(RX_WRAP);
+		macb->gem_q1_descs[1].ctrl = 0;
+
+		gem_writel(macb, TQ1, (ulong)&macb->gem_q1_descs[0]);
+		gem_writel(macb, RQ1, (ulong)&macb->gem_q1_descs[1]);
+	}
 
 	switch(macb->interface) {
 	case PHY_INTERFACE_MODE_RGMII:
@@ -603,11 +622,9 @@ static void macb_init_rx_buffer_size(struct macb_device *bp, size_t size)
 			bp->rx_buffer_size =
 				roundup(bp->rx_buffer_size, RX_BUFFER_MULTIPLE);
 		}
-		bp->rx_buffer = dma_alloc_coherent(bp->rx_buffer_size * bp->rx_ring_size,
-						   DMA_ADDRESS_BROKEN);
 	}
 
-	dev_dbg(bp->dev, "[%d] rx_buffer_size [%d]\n",
+	dev_dbg(bp->dev, "[%zu] rx_buffer_size [%d]\n",
 		   size, bp->rx_buffer_size);
 }
 
@@ -619,9 +636,10 @@ static int macb_probe(struct device_d *dev)
 	const char *pclk_name;
 	u32 ncfgr;
 
-	edev = xzalloc(sizeof(struct eth_device) + sizeof(struct macb_device));
-	edev->priv = (struct macb_device *)(edev + 1);
-	macb = edev->priv;
+	macb = xzalloc(sizeof(*macb));
+	edev = &macb->netdev;
+	edev->priv = macb;
+	dev->priv = macb;
 
 	macb->dev = dev;
 
@@ -697,10 +715,13 @@ static int macb_probe(struct device_d *dev)
 		edev->recv = macb_recv;
 
 	macb_init_rx_buffer_size(macb, PKTSIZE);
-	macb->rx_buffer = dma_alloc_coherent(macb->rx_buffer_size * macb->rx_ring_size,
-					     DMA_ADDRESS_BROKEN);
+	macb->rx_buffer = dma_alloc(macb->rx_buffer_size * macb->rx_ring_size);
 	macb->rx_ring = dma_alloc_coherent(RX_RING_BYTES(macb), DMA_ADDRESS_BROKEN);
 	macb->tx_ring = dma_alloc_coherent(TX_RING_BYTES, DMA_ADDRESS_BROKEN);
+
+	if (macb->is_gem)
+		macb->gem_q1_descs = dma_alloc_coherent(GEM_Q1_DESC_BYTES,
+				DMA_ADDRESS_BROKEN);
 
 	macb_reset_hw(macb);
 	ncfgr = macb_mdc_clk_div(macb);
@@ -720,14 +741,24 @@ static int macb_probe(struct device_d *dev)
 	return 0;
 }
 
+static void macb_remove(struct device_d *dev)
+{
+	struct macb_device *macb = dev->priv;
+
+	macb_halt(&macb->netdev);
+}
+
 static const struct of_device_id macb_dt_ids[] = {
 	{ .compatible = "cdns,at91sam9260-macb",},
+	{ .compatible = "atmel,sama5d3-gem",},
+	{ .compatible = "cdns,zynqmp-gem",},
 	{ /* sentinel */ }
 };
 
 static struct driver_d macb_driver = {
 	.name  = "macb",
 	.probe = macb_probe,
+	.remove = macb_remove,
 	.of_compatible = DRV_OF_COMPAT(macb_dt_ids),
 };
 device_platform_driver(macb_driver);
