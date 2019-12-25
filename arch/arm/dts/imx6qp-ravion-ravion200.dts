@@ -3,7 +3,11 @@
 
 /dts-v1/;
 
-#include "imx6qp-ravion.dtsi"
+#include <arm/imx6qp.dtsi>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/gpio/gpio.h>
+
+#include "imx6qdl-ravion-v2.dtsi"
 
 / {
 	model = "Radioavionica Corp. Ravion200 Board";
