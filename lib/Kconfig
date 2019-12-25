@@ -100,6 +100,9 @@ config FSL_QE_FIRMWARE
 	select CRC32
 	bool
 
+config LIBFDT
+	bool
+
 config RATP
 	select CRC_ITU_T
 	bool "RATP protocol support"
@@ -161,5 +164,14 @@ config NLS
 config BLOBGEN
 	select BASE64
 	bool "include blob encode/decode support"
+
+config ARCH_HAS_STACK_DUMP
+	bool
+
+config ARCH_HAS_DATA_ABORT_MASK
+	bool
+
+config HAVE_EFFICIENT_UNALIGNED_ACCESS
+	bool
 
 endmenu

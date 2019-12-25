@@ -95,7 +95,7 @@ static int imx_init(void)
 	if (root) {
 		__imx_cpu_type = imx_soc_from_dt();
 		if (!__imx_cpu_type)
-			hang();
+			return 0;
 	}
 
 	if (cpu_is_mx1())
@@ -199,9 +199,7 @@ void imx_set_reset_reason(void __iomem *srsr,
 		}
 	}
 
-	reset_source_set_priority(type,
-				  RESET_SOURCE_DEFAULT_PRIORITY);
-	reset_source_set_instance(type, instance);
+	reset_source_set_prinst(type, RESET_SOURCE_DEFAULT_PRIORITY, instance);
 
 	pr_info("i.MX reset reason %s (SRSR: 0x%08x)\n",
 		reset_source_name(), reg);

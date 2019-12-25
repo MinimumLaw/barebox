@@ -1,6 +1,7 @@
 KBUILD_DEFCONFIG := sandbox_defconfig
 
-CPPFLAGS += -D__SANDBOX__ -fno-strict-aliasing
+CPPFLAGS += -D__SANDBOX__ -fno-strict-aliasing -fvisibility=hidden
+
 
 machine-y := sandbox
 
@@ -23,7 +24,8 @@ CFLAGS += -Dmalloc=barebox_malloc -Dcalloc=barebox_calloc \
 		-Dglob=barebox_glob -Dglobfree=barebox_globfree \
 		-Dioctl=barebox_ioctl -Dfstat=barebox_fstat \
 		-Dopendir=barebox_opendir -Dreaddir=barebox_readdir \
-		-Dclosedir=barebox_closedir
+		-Dclosedir=barebox_closedir \
+		-Doptarg=barebox_optarg -Doptind=barebox_optind
 
 machdirs := $(patsubst %,arch/sandbox/mach-%/,$(machine-y))
 
@@ -45,11 +47,21 @@ ifeq ($(CONFIG_GPIO_LIBFTDI1),y)
 FTDI1_LIBS := $(shell pkg-config libftdi1 --libs)
 endif
 
+ifeq ($(CONFIG_KASAN),y)
+CPPFLAGS += -fsanitize=address
+SANITIZER_LIBS += -fsanitize=address
+endif
+
+ifeq ($(CONFIG_UBSAN),y)
+SANITIZER_LIBS += -fsanitize=undefined
+endif
+
 cmd_barebox__ = $(CC) -o $@ -Wl,-T,$(barebox-lds) \
 	-Wl,--start-group $(barebox-common) -Wl,--end-group \
-	-lrt -lpthread $(SDL_LIBS) $(FTDI1_LIBS)
+	-lrt -lpthread $(SDL_LIBS) $(FTDI1_LIBS) \
+	$(SANITIZER_LIBS)
 
-common-y += $(BOARD) arch/sandbox/os/
+common-y += $(BOARD) arch/sandbox/os/ arch/sandbox/lib/
 
 common-$(CONFIG_OFTREE) += arch/sandbox/dts/
 

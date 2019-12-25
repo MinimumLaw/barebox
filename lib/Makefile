@@ -71,6 +71,7 @@ obj-$(CONFIG_CRC_CCITT) += crc-ccitt.o
 obj-$(CONFIG_CRC8)	+= crc8.o
 obj-$(CONFIG_NLS)	+= nls_base.o
 obj-$(CONFIG_FSL_QE_FIRMWARE) += fsl-qe-firmware.o
+obj-$(CONFIG_UBSAN)	+= ubsan.o
 
 # GCC library routines
 obj-$(CONFIG_GENERIC_LIB_ASHLDI3) += ashldi3.o
@@ -79,3 +80,14 @@ obj-$(CONFIG_GENERIC_LIB_LSHRDI3) += lshrdi3.o
 obj-$(CONFIG_GENERIC_LIB_MULDI3)  += muldi3.o
 
 pbl-$(CONFIG_GENERIC_LIB_ASHLDI3) += ashldi3.o
+
+UBSAN_SANITIZE_ubsan.o := n
+
+libfdt_files = fdt.o fdt_ro.o fdt_wip.o fdt_rw.o fdt_sw.o fdt_strerror.o \
+	                      fdt_empty_tree.o
+$(foreach file, $(libfdt_files), \
+	        $(eval CFLAGS_$(file) = -I $(srctree)/scripts/dtc/libfdt))
+$(foreach file, $(libfdt_files), \
+		$(eval CFLAGS_pbl-$(file) = -I $(srctree)/scripts/dtc/libfdt))
+
+obj-pbl-$(CONFIG_LIBFDT) += $(libfdt_files)

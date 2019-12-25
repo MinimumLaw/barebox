@@ -1,5 +1,5 @@
 VERSION = 2019
-PATCHLEVEL = 08
+PATCHLEVEL = 09
 SUBLEVEL = 0
 EXTRAVERSION =
 NAME = None
@@ -329,6 +329,8 @@ export CFLAGS CFLAGS_KERNEL
 export AFLAGS AFLAGS_KERNEL
 export LDFLAGS_barebox
 
+export CFLAGS_UBSAN
+
 # Files to ignore in find ... statements
 
 RCS_FIND_IGNORE := \( -name SCCS -o -name BitKeeper -o -name .svn -o -name CVS -o -name .pc -o -name .hg -o -name .git \) -prune -o
@@ -476,6 +478,8 @@ CFLAGS += $(call cc-disable-warning, trampolines)
 
 CFLAGS += $(call cc-option, -fno-delete-null-pointer-checks,)
 
+CFLAGS   += $(call cc-disable-warning, address-of-packed-member)
+
 # arch Makefile may override CC so keep this after arch Makefile is included
 NOSTDINC_FLAGS += -nostdinc -isystem $(shell $(CC) -print-file-name=include)
 CHECKFLAGS     += $(NOSTDINC_FLAGS)
@@ -488,6 +492,8 @@ CFLAGS += $(call cc-option,-Wno-pointer-sign,)
 
 # change __FILE__ to the relative path from the srctree
 CFLAGS += $(call cc-option,-fmacro-prefix-map=$(srctree)/=)
+
+include $(srctree)/scripts/Makefile.ubsan
 
 # KBUILD_IMAGE: Default barebox image to build
 # Depending on the architecture, this can be either compressed or not.
